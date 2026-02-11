@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -19,6 +20,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
@@ -59,13 +61,18 @@ fun MainScreen(modifier: Modifier = Modifier) {
             ) == PackageManager.PERMISSION_GRANTED
         )
     }
+    var isCameraActive by remember { mutableStateOf(true) }
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { granted ->
             hasCameraPermission = granted
         }
     )
-    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
         if (!hasCameraPermission) {
             Text(
                 text = "This App requires camera permission in order to function.",
@@ -76,41 +83,72 @@ fun MainScreen(modifier: Modifier = Modifier) {
                 Text(text = "Grant Camera Permission")
             }
         } else {
-           CameraPreviewWindow()
+            Text(text = if (isCameraActive) "Camera Active" else "Camera Inactive")
+            Box(modifier = Modifier.fillMaxSize()) {
+                CameraPreviewWindow(isCameraActive = isCameraActive)
+                ToggleCameraButton(isCameraActive = isCameraActive, onToggle = {
+                    isCameraActive = !isCameraActive
+                }, modifier = Modifier.align(Alignment.BottomCenter))
+            }
         }
     }
 }
 
 @Composable
-fun CameraPreviewWindow(modifier: Modifier = Modifier) {
+fun ToggleCameraButton(
+    modifier: Modifier = Modifier,
+    isCameraActive: Boolean = true,
+    onToggle: () -> Unit
+) {
+    Button(modifier = modifier, onClick = onToggle) {
+        Text(text = if (isCameraActive) "Stop Camera" else "Start Camera")
+    }
+}
+
+@Composable
+fun CameraPreviewWindow(modifier: Modifier = Modifier, isCameraActive: Boolean = true) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
 
     val previewView = remember { PreviewView(context) }
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            try {
+                cameraProviderFuture.get().unbindAll()
+            } catch (e: Exception) {
+                Log.e("CameraPreviewWindow", "Unbinding Failed", e)
+            }
+        }
+    }
+
     AndroidView(
         modifier = modifier.fillMaxSize(),
-        factory = { previewView}
+        factory = { previewView }
     ) { _ ->
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
 
-            val preview = androidx.camera.core.Preview.Builder().build().also {
-                it.surfaceProvider = previewView.surfaceProvider
-            }
+            if (isCameraActive) {
+                val preview = androidx.camera.core.Preview.Builder().build().also {
+                    it.surfaceProvider = previewView.surfaceProvider
+                }
 
-            val cameraSelector = androidx.camera.core.CameraSelector.DEFAULT_BACK_CAMERA
+                val cameraSelector = androidx.camera.core.CameraSelector.DEFAULT_BACK_CAMERA
 
-            try {
+                try {
+                    cameraProvider.unbindAll()
+                    cameraProvider.bindToLifecycle(
+                        lifecycleOwner,
+                        cameraSelector,
+                        preview
+                    )
+                } catch (e: Exception) {
+                    Log.e("CameraPreviewWindow", "Binding Failed", e)
+                }
+            } else {
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
-                    lifecycleOwner,
-                    cameraSelector,
-                    preview
-                )
-            } catch (e: Exception) {
-                Log.e("CameraPreviewWindow", "Binding Failed", e)
             }
         }, ContextCompat.getMainExecutor(context))
     }
