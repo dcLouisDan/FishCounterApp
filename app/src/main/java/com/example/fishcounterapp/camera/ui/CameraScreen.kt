@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -18,32 +19,30 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.fishcounterapp.camera.data.CameraRepository
 import com.example.fishcounterapp.camera.viewmodel.CameraViewModel
-import com.example.fishcounterapp.camera.viewmodel.CameraViewModelFactory
+import com.example.fishcounterapp.utils.cameraViewModel
 
 @Composable
 fun CameraScreen(
-    modifier: Modifier = Modifier,
-    cameraViewModel: CameraViewModel = viewModel(
-        factory = CameraViewModelFactory(
-            CameraRepository(LocalContext.current)
-        )
-    )
+    modifier: Modifier = Modifier, cameraViewModel: CameraViewModel = cameraViewModel()
 ) {
-    val uiState by cameraViewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val uiState by cameraViewModel.uiState.collectAsState()
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { isGranted ->
+        contract = ActivityResultContracts.RequestPermission(), onResult = { isGranted ->
             cameraViewModel.onPermissionResult(isGranted)
-        }
-    )
+        })
+    val openCvStatusMessage = if (uiState.isOpenCvAvailable) {
+        "OpenCV is available."
+    } else {
+        "OpenCV failed to initialize."
+    }
 
     LaunchedEffect(Unit) {
         if (!uiState.hasPermission) {
@@ -59,6 +58,17 @@ fun CameraScreen(
                     lifecycleOwner = lifecycleOwner,
                     cameraRepository = CameraRepository(context)
                 )
+            } else {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("Welcome to the Fish-Counter App")
+                        Text("Press 'Start Camera' to begin counting fish")
+                    }
+                }
             }
             CameraControls(
                 modifier = Modifier
@@ -70,7 +80,12 @@ fun CameraScreen(
                 onStartCamera = {
                     cameraViewModel.startCamera()
                 },
-                onStopCamera = { cameraViewModel.stopCamera() }
+                onStopCamera = { cameraViewModel.stopCamera() })
+            Text(
+                text = openCvStatusMessage,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(8.dp)
             )
         } else {
             Column(
@@ -82,8 +97,7 @@ fun CameraScreen(
                 CameraControls(
                     isCameraRunning = false,
                     onStartCamera = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                    onStopCamera = {}
-                )
+                    onStopCamera = {})
             }
         }
 
@@ -92,3 +106,5 @@ fun CameraScreen(
         }
     }
 }
+
+
