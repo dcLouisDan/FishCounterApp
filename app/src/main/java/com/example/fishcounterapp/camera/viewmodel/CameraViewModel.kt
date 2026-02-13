@@ -1,6 +1,7 @@
 package com.example.fishcounterapp.camera.viewmodel
 
 import android.util.Log
+import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import com.example.fishcounterapp.camera.data.CameraRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +21,10 @@ class CameraViewModel(
     val isOpenCvInitialized: Boolean
 ) : ViewModel() {
 
+    companion object {
+        private const val TAG = "CameraViewModel"
+    }
+
     private val _uiState = MutableStateFlow(
         CameraUiState(
             isOpenCvAvailable = isOpenCvInitialized
@@ -27,9 +32,12 @@ class CameraViewModel(
     )
     val uiState: StateFlow<CameraUiState> = _uiState.asStateFlow()
 
+    private var frameCount = 0
+    private var lastFpsTime = System.currentTimeMillis()
+
     init {
         if (!isOpenCvInitialized) {
-            Log.w("CameraViewModel", "OpenCV is not initialized. Camera features may not work.")
+            Log.w(TAG, "OpenCV is not initialized. Camera features may not work.")
         }
     }
 
@@ -47,5 +55,20 @@ class CameraViewModel(
     fun stopCamera() {
         _uiState.update { it.copy(isCameraRunning = false) }
         cameraRepository.releaseCamera()
+    }
+
+    fun onFrameReceived(imageProxy: ImageProxy) {
+        frameCount++
+
+        val currentTime = System.currentTimeMillis()
+        val elapsed = currentTime - lastFpsTime
+
+        if (elapsed >= 1000) {
+            val fps = (frameCount * 1000) / elapsed
+            Log.d(TAG, "FPS: $fps, Frame received: ${imageProxy.width}x${imageProxy.height}")
+
+            frameCount = 0
+            lastFpsTime = currentTime
+        }
     }
 }

@@ -19,7 +19,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.fishcounterapp.camera.data.CameraRepository
 import com.example.fishcounterapp.camera.viewmodel.CameraViewModel
@@ -52,13 +51,14 @@ fun CameraScreen(
 
     Box(modifier = modifier.fillMaxSize()) {
         if (uiState.hasPermission) {
-            if (uiState.isCameraRunning) {
-                CameraPreview(
-                    previewView = previewView,
-                    lifecycleOwner = lifecycleOwner,
-                    cameraRepository = CameraRepository(context)
-                )
-            } else {
+            CameraPreview(
+                previewView = previewView,
+                lifecycleOwner = lifecycleOwner,
+                cameraRepository = CameraRepository(context),
+                viewModel = cameraViewModel,
+                isRunning = uiState.isCameraRunning
+            )
+            if (!uiState.isCameraRunning) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier.fillMaxSize(),

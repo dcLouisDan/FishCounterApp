@@ -1,7 +1,6 @@
 package com.example.fishcounterapp.camera.data
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.util.Log
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -13,7 +12,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.google.common.util.concurrent.ListenableFuture
 import java.util.concurrent.Executor
-import androidx.core.graphics.createBitmap
 import java.util.concurrent.Executors
 
 class CameraRepository(
@@ -24,10 +22,15 @@ class CameraRepository(
     private val mainExecutor: Executor = ContextCompat.getMainExecutor(context)
 ) {
 
+    companion object {
+        private const val TAG = "CameraRepository"
+    }
+
     private val cameraExecutor = Executors.newSingleThreadExecutor()
     fun setupCamera(
         lifecycleOwner: LifecycleOwner,
-        previewView: PreviewView
+        previewView: PreviewView,
+        onFrameReceived: (ImageProxy) -> Unit
     ) {
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
@@ -43,8 +46,13 @@ class CameraRepository(
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
             imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                val bitmap = imageProxyToBitmap(imageProxy)
-                // TODO: Process the bitmap here
+                Log.d(
+                    TAG,
+                    "Frame received: ${imageProxy.width}x${imageProxy.height}, " +
+                            "format: ${imageProxy.format}, "
+                )
+
+                onFrameReceived(imageProxy)
 
                 imageProxy.close()
             }
@@ -58,22 +66,18 @@ class CameraRepository(
                     imageAnalysis
                 )
             } catch (e: Exception) {
-                Log.e("CameraRepository", "Camera binding failed", e)
+                Log.e(TAG, "Camera binding failed", e)
             }
         }, mainExecutor)
-    }
-
-    private fun imageProxyToBitmap(imageProxy: ImageProxy): Bitmap {
-        // TODO: Convert ImageProxy to Bitmap
-        return createBitmap(imageProxy.width, imageProxy.height)
     }
 
     fun releaseCamera() {
         try {
             cameraProviderFuture.get().unbindAll()
             cameraExecutor.shutdown()
+            Log.d(TAG, "Camera released.")
         } catch (e: Exception) {
-            Log.e("CameraRepository", "Camera unbinding failed", e)
+            Log.e(TAG, "Camera unbinding failed", e)
         }
     }
 }
