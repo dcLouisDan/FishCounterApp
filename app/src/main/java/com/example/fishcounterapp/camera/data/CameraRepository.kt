@@ -53,8 +53,6 @@ class CameraRepository(
                 )
 
                 onFrameReceived(imageProxy)
-
-                imageProxy.close()
             }
 
             try {

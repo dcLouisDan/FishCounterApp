@@ -3,11 +3,15 @@ package com.example.fishcounterapp.camera.viewmodel
 import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.example.fishcounterapp.camera.data.CameraRepository
+import com.example.fishcounterapp.utils.ImageConverter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 data class CameraUiState(
     val hasPermission: Boolean = false,
@@ -32,8 +36,6 @@ class CameraViewModel(
     )
     val uiState: StateFlow<CameraUiState> = _uiState.asStateFlow()
 
-    private var frameCount = 0
-    private var lastFpsTime = System.currentTimeMillis()
 
     init {
         if (!isOpenCvInitialized) {
@@ -58,6 +60,33 @@ class CameraViewModel(
     }
 
     fun onFrameReceived(imageProxy: ImageProxy) {
+        viewModelScope.launch(Dispatchers.Default) {
+            val startTime = System.currentTimeMillis()
+            try {
+                val bitmap = ImageConverter.imageProxyToBitmap(imageProxy)
+                if (bitmap != null) {
+                    val conversionTime = System.currentTimeMillis() - startTime
+                    Log.d(
+                        TAG,
+                        "Bitmap Created: ${bitmap.width}x${bitmap.height}, " +
+                                "format: ${bitmap.config}, " +
+                                "conversion took: ${conversionTime}ms"
+                    )
+                    updateFpsCounter()
+                } else {
+                    Log.w(TAG, "Failed to convert frame to bitmap")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error converting frame", e)
+            } finally {
+                imageProxy.close()
+            }
+        }
+    }
+
+    private var frameCount = 0
+    private var lastFpsTime = System.currentTimeMillis()
+    private fun updateFpsCounter() {
         frameCount++
 
         val currentTime = System.currentTimeMillis()
@@ -65,7 +94,7 @@ class CameraViewModel(
 
         if (elapsed >= 1000) {
             val fps = (frameCount * 1000) / elapsed
-            Log.d(TAG, "FPS: $fps, Frame received: ${imageProxy.width}x${imageProxy.height}")
+            Log.d(TAG, "FPS: $fps")
 
             frameCount = 0
             lastFpsTime = currentTime
