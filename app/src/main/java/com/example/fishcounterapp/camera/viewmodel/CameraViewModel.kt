@@ -5,6 +5,7 @@ import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.fishcounterapp.camera.data.CameraRepository
+import com.example.fishcounterapp.domain.processing.ImageProcessor
 import com.example.fishcounterapp.utils.ImageConverter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.opencv.core.Mat
 
 data class CameraUiState(
     val hasPermission: Boolean = false,
@@ -22,6 +24,7 @@ data class CameraUiState(
 
 class CameraViewModel(
     private val cameraRepository: CameraRepository,
+    private val imageProcessor: ImageProcessor?,
     val isOpenCvInitialized: Boolean
 ) : ViewModel() {
 
@@ -62,23 +65,31 @@ class CameraViewModel(
     fun onFrameReceived(imageProxy: ImageProxy) {
         viewModelScope.launch(Dispatchers.Default) {
             val startTime = System.currentTimeMillis()
+            var mat: Mat? = null
             try {
                 val bitmap = ImageConverter.imageProxyToBitmap(imageProxy)
-                if (bitmap != null) {
-                    val conversionTime = System.currentTimeMillis() - startTime
-                    Log.d(
-                        TAG,
-                        "Bitmap Created: ${bitmap.width}x${bitmap.height}, " +
-                                "format: ${bitmap.config}, " +
-                                "conversion took: ${conversionTime}ms"
-                    )
-                    updateFpsCounter()
-                } else {
+                if (bitmap == null || imageProcessor == null) {
                     Log.w(TAG, "Failed to convert frame to bitmap")
+                    return@launch
                 }
+                mat = imageProcessor.bitmapToMap(bitmap)
+                if (mat == null) return@launch
+                imageProcessor.logMatInfo(mat, "Original")
+
+                val processingTime = System.currentTimeMillis() - startTime
+                Log.d(
+                    TAG,
+                    "Mat created: ${mat.cols()}x${mat.rows()}, " + "channels: ${mat.channels()}, " + "processing took: ${processingTime}ms"
+                )
+
+                updateFpsCounter()
             } catch (e: Exception) {
                 Log.e(TAG, "Error converting frame", e)
             } finally {
+                if (mat !== null) {
+                    mat.release()
+                    imageProcessor?.onMatReleased()
+                }
                 imageProxy.close()
             }
         }

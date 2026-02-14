@@ -3,7 +3,6 @@ package com.example.fishcounterapp.camera.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.example.fishcounterapp.AppContainer
-import com.example.fishcounterapp.camera.data.CameraRepository
 
 class CameraViewModelFactory(private val container: AppContainer) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -11,7 +10,8 @@ class CameraViewModelFactory(private val container: AppContainer) : ViewModelPro
             @Suppress("UNCHECKED_CAST")
             return CameraViewModel(
                 cameraRepository = container.cameraRepository,
-                isOpenCvInitialized = container.isOpenCvInitialized
+                isOpenCvInitialized = container.isOpenCvInitialized,
+                imageProcessor = container.imageProcessor
             ) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
