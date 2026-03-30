@@ -80,7 +80,12 @@ fun CameraScreen(
                 onStartCamera = {
                     cameraViewModel.startCamera()
                 },
-                onStopCamera = { cameraViewModel.stopCamera() })
+                onStopCamera = { cameraViewModel.stopCamera() },
+                isGrayscaleEnabled = uiState.isGrayscaleEnabled,
+                onToggleGrayscale = {
+                    cameraViewModel.toggleGrayscale()
+                }
+            )
             Text(
                 text = openCvStatusMessage,
                 modifier = Modifier
@@ -97,7 +102,12 @@ fun CameraScreen(
                 CameraControls(
                     isCameraRunning = false,
                     onStartCamera = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                    onStopCamera = {})
+                    onStopCamera = {},
+                    isGrayscaleEnabled = uiState.isGrayscaleEnabled,
+                    onToggleGrayscale = {
+                        cameraViewModel.toggleGrayscale()
+                    }
+                )
             }
         }
 

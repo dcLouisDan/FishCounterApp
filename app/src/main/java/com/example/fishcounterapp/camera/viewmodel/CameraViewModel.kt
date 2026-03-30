@@ -19,7 +19,8 @@ data class CameraUiState(
     val hasPermission: Boolean = false,
     val isCameraRunning: Boolean = false,
     val errorMessage: String? = null,
-    val isOpenCvAvailable: Boolean = false
+    val isOpenCvAvailable: Boolean = false,
+    val isGrayscaleEnabled: Boolean = false
 )
 
 class CameraViewModel(
@@ -62,34 +63,61 @@ class CameraViewModel(
         cameraRepository.releaseCamera()
     }
 
+    fun toggleGrayscale() {
+        _uiState.update {
+            it.copy(
+                isGrayscaleEnabled = !it.isGrayscaleEnabled
+            )
+        }
+    }
+
     fun onFrameReceived(imageProxy: ImageProxy) {
         viewModelScope.launch(Dispatchers.Default) {
             val startTime = System.currentTimeMillis()
-            var mat: Mat? = null
+            var colorMat: Mat? = null
+            var grayMat: Mat? = null
             try {
                 val bitmap = ImageConverter.imageProxyToBitmap(imageProxy)
                 if (bitmap == null || imageProcessor == null) {
                     Log.w(TAG, "Failed to convert frame to bitmap")
                     return@launch
                 }
-                mat = imageProcessor.bitmapToMap(bitmap)
-                if (mat == null) return@launch
-                imageProcessor.logMatInfo(mat, "Original")
+                val bitmapTime = System.currentTimeMillis() - startTime
+                colorMat = imageProcessor.bitmapToMap(bitmap)
+                if (colorMat == null) return@launch
+                val matTime = System.currentTimeMillis() - startTime - bitmapTime
+                imageProcessor.logMatInfo(colorMat, "Original")
+                if (_uiState.value.isGrayscaleEnabled) {
+                    val grayStartTime = System.currentTimeMillis()
+                    grayMat = imageProcessor.convertToGrayscale(colorMat)
+                    val grayTime = System.currentTimeMillis() - grayStartTime
 
-                val processingTime = System.currentTimeMillis() - startTime
-                Log.d(
-                    TAG,
-                    "Mat created: ${mat.cols()}x${mat.rows()}, " + "channels: ${mat.channels()}, " + "processing took: ${processingTime}ms"
-                )
+                    val totalTime = System.currentTimeMillis() - startTime
 
+                    Log.d(
+                        TAG,
+                        "Timing breakdown: Bitmap=${bitmapTime}ms, " +
+                                "Mat=${matTime}ms, Gray=${grayTime}ms, " +
+                                "Total=${totalTime}ms"
+                    )
+                } else {
+                    val processingTime = System.currentTimeMillis() - startTime
+
+                    Log.d(
+                        TAG,
+                        "Color: ${colorMat.cols()}x${colorMat.rows()}, " +
+                                "time: ${processingTime}ms"
+                    )
+                }
                 updateFpsCounter()
             } catch (e: Exception) {
                 Log.e(TAG, "Error converting frame", e)
             } finally {
-                if (mat !== null) {
-                    mat.release()
+                if (colorMat !== null) {
+                    colorMat.release()
                     imageProcessor?.onMatReleased()
                 }
+                grayMat?.release()
                 imageProxy.close()
             }
         }

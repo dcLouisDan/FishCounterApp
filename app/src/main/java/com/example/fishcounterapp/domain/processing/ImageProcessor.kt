@@ -5,6 +5,7 @@ import android.util.Log
 import org.opencv.android.Utils
 import org.opencv.core.Mat
 import androidx.core.graphics.createBitmap
+import org.opencv.imgproc.Imgproc
 
 class ImageProcessor {
     companion object {
@@ -72,5 +73,36 @@ class ImageProcessor {
             - Is continuous: ${mat.isContinuous}
         """.trimIndent()
         )
+    }
+
+    fun convertToGrayscale(colorMat: Mat): Mat {
+        val grayMat = Mat()
+
+        when (colorMat.channels()) {
+            4 -> {
+                // BGRA (4 channels) -> Gray
+                Imgproc.cvtColor(colorMat, grayMat, Imgproc.COLOR_BGRA2GRAY)
+                Log.d(TAG, "Converted BGRA to Grayscale")
+            }
+
+            3 -> {
+                // BGR (3 channels) -> Gray
+                Imgproc.cvtColor(colorMat, grayMat, Imgproc.COLOR_BGR2GRAY)
+                Log.d(TAG, "Converted BGRA to Grayscale")
+            }
+
+            1 -> {
+                // Already grayscale
+                Log.d(TAG, "Mat already Grayscale")
+                return colorMat.clone()
+            }
+
+            else -> {
+                Log.e(TAG, "Unsupported channel count: ${colorMat.channels()}")
+                return colorMat.clone()
+            }
+        }
+
+        return grayMat
     }
 }
