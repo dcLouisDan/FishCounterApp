@@ -1,5 +1,6 @@
 package com.example.fishcounterapp.camera.viewmodel
 
+import android.graphics.Bitmap
 import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
@@ -13,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.opencv.core.Mat
 
 data class CameraUiState(
@@ -20,7 +22,9 @@ data class CameraUiState(
     val isCameraRunning: Boolean = false,
     val errorMessage: String? = null,
     val isOpenCvAvailable: Boolean = false,
-    val isGrayscaleEnabled: Boolean = false
+    val isGrayscaleEnabled: Boolean = false,
+    val processedBitmap: Bitmap? = null,
+    val currentFps: Int = 0
 )
 
 class CameraViewModel(
@@ -76,31 +80,31 @@ class CameraViewModel(
             val startTime = System.currentTimeMillis()
             var colorMat: Mat? = null
             var grayMat: Mat? = null
+            var processedBitmap: Bitmap? = null
             try {
                 val bitmap = ImageConverter.imageProxyToBitmap(imageProxy)
                 if (bitmap == null || imageProcessor == null) {
                     Log.w(TAG, "Failed to convert frame to bitmap")
                     return@launch
                 }
-                val bitmapTime = System.currentTimeMillis() - startTime
                 colorMat = imageProcessor.bitmapToMap(bitmap)
                 if (colorMat == null) return@launch
-                val matTime = System.currentTimeMillis() - startTime - bitmapTime
                 imageProcessor.logMatInfo(colorMat, "Original")
                 if (_uiState.value.isGrayscaleEnabled) {
                     val grayStartTime = System.currentTimeMillis()
                     grayMat = imageProcessor.convertToGrayscale(colorMat)
-                    val grayTime = System.currentTimeMillis() - grayStartTime
 
-                    val totalTime = System.currentTimeMillis() - startTime
+                    processedBitmap = imageProcessor.matToBitmap(grayMat)
+
+                    val processingTime = System.currentTimeMillis() - startTime
 
                     Log.d(
                         TAG,
-                        "Timing breakdown: Bitmap=${bitmapTime}ms, " +
-                                "Mat=${matTime}ms, Gray=${grayTime}ms, " +
-                                "Total=${totalTime}ms"
+                        "Grayscale processed and converted to Bitmap, " +
+                                "time: ${processingTime}ms"
                     )
                 } else {
+                    processedBitmap = bitmap
                     val processingTime = System.currentTimeMillis() - startTime
 
                     Log.d(
@@ -108,6 +112,14 @@ class CameraViewModel(
                         "Color: ${colorMat.cols()}x${colorMat.rows()}, " +
                                 "time: ${processingTime}ms"
                     )
+                }
+
+                withContext(Dispatchers.Main) {
+                    _uiState.update {
+                        it.copy(
+                            processedBitmap = processedBitmap
+                        )
+                    }
                 }
                 updateFpsCounter()
             } catch (e: Exception) {
@@ -133,6 +145,11 @@ class CameraViewModel(
 
         if (elapsed >= 1000) {
             val fps = (frameCount * 1000) / elapsed
+
+            viewModelScope.launch(Dispatchers.Main) {
+                _uiState.update { it.copy(currentFps = fps.toInt()) }
+            }
+
             Log.d(TAG, "FPS: $fps")
 
             frameCount = 0

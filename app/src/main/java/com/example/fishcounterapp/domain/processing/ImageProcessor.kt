@@ -51,8 +51,19 @@ class ImageProcessor {
                 return null
             }
 
-            val bitmap = createBitmap(mat.cols(), mat.rows())
-            Utils.matToBitmap(mat, bitmap)
+            val bitmap = if (mat.channels() == 1) {
+                val bgraMat = Mat()
+                Imgproc.cvtColor(mat, bgraMat, Imgproc.COLOR_GRAY2BGRA)
+                val resultBitmap =
+                    createBitmap(bgraMat.cols(), bgraMat.rows(), Bitmap.Config.ARGB_8888)
+                Utils.matToBitmap(bgraMat, resultBitmap)
+                bgraMat.release()
+                resultBitmap
+            } else {
+                val resultBitmap = createBitmap(mat.cols(), mat.rows(), Bitmap.Config.ARGB_8888)
+                Utils.matToBitmap(mat, resultBitmap)
+                resultBitmap
+            }
             bitmap
         } catch (e: Exception) {
             Log.e(TAG, "Failed to convert Mat to bitmap", e)

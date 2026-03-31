@@ -56,7 +56,9 @@ fun CameraScreen(
                 lifecycleOwner = lifecycleOwner,
                 cameraRepository = CameraRepository(context),
                 viewModel = cameraViewModel,
-                isRunning = uiState.isCameraRunning
+                isRunning = uiState.isCameraRunning,
+                processedBitmap = uiState.processedBitmap,
+                currentFps = uiState.currentFps
             )
             if (!uiState.isCameraRunning) {
                 Surface(modifier = Modifier.fillMaxSize()) {
