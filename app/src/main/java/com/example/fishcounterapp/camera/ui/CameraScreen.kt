@@ -37,11 +37,7 @@ fun CameraScreen(
         contract = ActivityResultContracts.RequestPermission(), onResult = { isGranted ->
             cameraViewModel.onPermissionResult(isGranted)
         })
-    val openCvStatusMessage = if (uiState.isOpenCvAvailable) {
-        "OpenCV is available."
-    } else {
-        "OpenCV failed to initialize."
-    }
+
 
     LaunchedEffect(Unit) {
         if (!uiState.hasPermission) {
@@ -87,12 +83,6 @@ fun CameraScreen(
                 onToggleGrayscale = {
                     cameraViewModel.toggleGrayscale()
                 }
-            )
-            Text(
-                text = openCvStatusMessage,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(8.dp)
             )
         } else {
             Column(

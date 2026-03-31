@@ -7,7 +7,11 @@ import android.graphics.Rect
 import android.graphics.YuvImage
 import android.util.Log
 import androidx.camera.core.ImageProxy
+import org.opencv.core.CvType
+import org.opencv.core.Mat
+import org.opencv.imgproc.Imgproc
 import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
 
 object ImageConverter {
 
@@ -71,6 +75,226 @@ object ImageConverter {
         return BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
     }
 
+    fun imageProxyToMatDirect(imageProxy: ImageProxy): Mat? {
+        return try {
+            if (imageProxy.format != ImageFormat.YUV_420_888) {
+                Log.e(TAG, "Unsupported format: ${imageProxy.format}")
+                return null
+            }
+
+            val width = imageProxy.width
+            val height = imageProxy.height
+
+            // 1. Get the planes
+            val yPlane = imageProxy.planes[0]
+            val uPlane = imageProxy.planes[1]
+            val vPlane = imageProxy.planes[2]
+
+            val yBuffer = yPlane.buffer
+            val uBuffer = uPlane.buffer
+            val vBuffer = vPlane.buffer
+
+            val ySize = yBuffer.remaining()
+            val uSize = uBuffer.remaining()
+            val vSize = vBuffer.remaining()
+
+            // 2. Prepare a single byte array for the NV21 format
+            // NV21 consists of the full Y plane, followed by interleaved V and U
+            val nv21 = ByteArray(ySize + (width * height / 2))
+
+            // Copy Y plane
+            yBuffer.get(nv21, 0, ySize)
+
+            // 3. Manually interleave V and U if they aren't already
+            // In NV21, the layout is V, U, V, U...
+            val vPixelStride = vPlane.pixelStride
+            val uPixelStride = uPlane.pixelStride
+
+            // This is where most "purple/green" issues happen.
+            // We fill the remaining part of the nv21 array starting at ySize
+            if (vPixelStride == 2 && uPixelStride == 2 && vBuffer.remaining() == uBuffer.remaining()) {
+                // This is the common case for many Android devices (already interleaved)
+                // We just need to take the V buffer which usually contains the U data in the next byte
+                vBuffer.get(nv21, ySize, vSize)
+            } else {
+                // Fallback: Manually interleave if the strides are different
+                var pos = ySize
+                for (row in 0 until height / 2) {
+                    for (col in 0 until width / 2) {
+                        val vIdx = row * vPlane.rowStride + col * vPixelStride
+                        val uIdx = row * uPlane.rowStride + col * uPixelStride
+                        nv21[pos++] = vBuffer.get(vIdx)
+                        nv21[pos++] = uBuffer.get(uIdx)
+                    }
+                }
+            }
+
+            // 4. Create YUV Mat (Height * 1.5 to account for Chroma planes)
+            val yuvMat = Mat(height + height / 2, width, CvType.CV_8UC1)
+            yuvMat.put(0, 0, nv21)
+
+            // 5. Convert to BGR or RGBA
+            val bgrMat = Mat()
+            Imgproc.cvtColor(yuvMat, bgrMat, Imgproc.COLOR_YUV2RGBA_NV21)
+            yuvMat.release()
+
+            // 6. Handle Rotation
+            val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+            if (rotationDegrees != 0) {
+                val rotatedMat = rotateMat(bgrMat, rotationDegrees)
+                bgrMat.release()
+                rotatedMat
+            } else {
+                bgrMat
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Direct conversion failed", e)
+            imageProxyToBitmapFallback(imageProxy)?.let { bitmapToMat(it) }
+        }
+    }
+
+    private fun copyPlaneWithStride(
+        buffer: ByteBuffer,
+        dst: ByteArray,
+        dstOffset: Int,
+        width: Int,
+        height: Int,
+        rowStride: Int,
+        pixelStride: Int
+    ) {
+        buffer.rewind()
+
+        if (pixelStride == 1) {
+            for (row in 0 until height) {
+                val rowOffset = row * rowStride
+                buffer.position(rowOffset)
+                buffer.get(dst, dstOffset + row * width, width)
+            }
+        } else {
+            for (row in 0 until height) {
+                for (col in 0 until width) {
+                    val bufferIndex = row * rowStride + col * pixelStride
+                    dst[dstOffset + row * width + col] = buffer.get(bufferIndex)
+                }
+            }
+        }
+
+        buffer.rewind()
+    }
+
+    private fun deinterleavePlanes(
+        uBuffer: ByteBuffer,
+        vBuffer: ByteBuffer,
+        dst: ByteArray,
+        ySize: Int,
+        uvSize: Int,
+        uvRowStride: Int
+    ) {
+        uBuffer.rewind()
+        vBuffer.rewind()
+
+        val uvWidth = uvRowStride / 2
+        val uvHeight = uvSize / uvWidth
+
+        for (row in 0 until uvHeight) {
+            for (col in 0 until uvWidth) {
+                val bufferIndex = row * uvRowStride + col * 2
+                dst[ySize + row * uvWidth + col] = uBuffer.get(bufferIndex)
+                dst[ySize + uvSize + row * uvWidth + col] = vBuffer.get(bufferIndex)
+            }
+        }
+
+        uBuffer.rewind()
+        vBuffer.rewind()
+    }
+
+    private fun rotateMat(mat: Mat, degrees: Int): Mat {
+        if (degrees == 0) return mat
+
+        val rotatedMat = Mat()
+
+        when (degrees) {
+            90 -> {
+                org.opencv.core.Core.rotate(
+                    mat,
+                    rotatedMat,
+                    org.opencv.core.Core.ROTATE_90_CLOCKWISE
+                )
+            }
+
+            180 -> {
+                org.opencv.core.Core.rotate(mat, rotatedMat, org.opencv.core.Core.ROTATE_180)
+            }
+
+            270 -> {
+                org.opencv.core.Core.rotate(
+                    mat,
+                    rotatedMat,
+                    org.opencv.core.Core.ROTATE_90_COUNTERCLOCKWISE
+                )
+            }
+
+            else -> {
+                Log.w(TAG, "Unsupported rotation: $degrees degrees")
+                return mat
+            }
+        }
+
+        return rotatedMat
+    }
+
+    /**
+     * Fallback method: ImageProxy → Bitmap (via JPEG)
+     * Used when direct conversion fails or for comparison
+     */
+    fun imageProxyToBitmapFallback(imageProxy: ImageProxy): Bitmap? {
+        return try {
+            val yBuffer = imageProxy.planes[0].buffer
+            val uBuffer = imageProxy.planes[1].buffer
+            val vBuffer = imageProxy.planes[2].buffer
+
+            val ySize = yBuffer.remaining()
+            val uSize = uBuffer.remaining()
+            val vSize = vBuffer.remaining()
+
+            val nv21 = ByteArray(ySize + uSize + vSize)
+
+            yBuffer.get(nv21, 0, ySize)
+            vBuffer.get(nv21, ySize, vSize)
+            uBuffer.get(nv21, ySize + vSize, uSize)
+
+            val yuvImage = YuvImage(
+                nv21,
+                ImageFormat.NV21,
+                imageProxy.width,
+                imageProxy.height,
+                null
+            )
+
+            val out = ByteArrayOutputStream()
+            yuvImage.compressToJpeg(
+                Rect(0, 0, imageProxy.width, imageProxy.height),
+                100,
+                out
+            )
+
+            val imageBytes = out.toByteArray()
+            val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+
+            // Handle rotation
+            val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+            if (rotationDegrees != 0) {
+                rotateBitmap(bitmap, rotationDegrees)
+            } else {
+                bitmap
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Bitmap fallback conversion failed", e)
+            null
+        }
+    }
+
     private fun rotateBitmap(bitmap: Bitmap, degrees: Int): Bitmap {
         if (degrees == 0) return bitmap
 
@@ -86,5 +310,14 @@ object ImageConverter {
             matrix,
             true
         )
+    }
+
+    /**
+     * Convert Bitmap to Mat (for fallback path or when Bitmap is needed)
+     */
+    private fun bitmapToMat(bitmap: Bitmap): Mat {
+        val mat = Mat()
+        org.opencv.android.Utils.bitmapToMat(bitmap, mat)
+        return mat
     }
 }

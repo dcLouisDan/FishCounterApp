@@ -82,16 +82,13 @@ class CameraViewModel(
             var grayMat: Mat? = null
             var processedBitmap: Bitmap? = null
             try {
-                val bitmap = ImageConverter.imageProxyToBitmap(imageProxy)
-                if (bitmap == null || imageProcessor == null) {
+                if (imageProcessor == null) {
                     Log.w(TAG, "Failed to convert frame to bitmap")
                     return@launch
                 }
-                colorMat = imageProcessor.bitmapToMap(bitmap)
+                colorMat = ImageConverter.imageProxyToMatDirect(imageProxy)
                 if (colorMat == null) return@launch
-                imageProcessor.logMatInfo(colorMat, "Original")
                 if (_uiState.value.isGrayscaleEnabled) {
-                    val grayStartTime = System.currentTimeMillis()
                     grayMat = imageProcessor.convertToGrayscale(colorMat)
 
                     processedBitmap = imageProcessor.matToBitmap(grayMat)
@@ -104,7 +101,8 @@ class CameraViewModel(
                                 "time: ${processingTime}ms"
                     )
                 } else {
-                    processedBitmap = bitmap
+
+                    processedBitmap = imageProcessor.matToBitmap(colorMat)
                     val processingTime = System.currentTimeMillis() - startTime
 
                     Log.d(
