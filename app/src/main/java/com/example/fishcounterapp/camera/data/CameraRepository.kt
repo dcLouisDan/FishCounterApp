@@ -2,14 +2,18 @@ package com.example.fishcounterapp.camera.data
 
 import android.content.Context
 import android.util.Log
+import android.util.Size
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import com.example.fishcounterapp.utils.ProcessingConfig
 import com.google.common.util.concurrent.ListenableFuture
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
@@ -39,18 +43,30 @@ class CameraRepository(
                 it.surfaceProvider = previewView.surfaceProvider
             }
 
+            val resolutionSelector = ResolutionSelector.Builder()
+                .setResolutionStrategy(
+                    ResolutionStrategy(
+                        Size(ProcessingConfig.TARGET_WIDTH, ProcessingConfig.TARGET_HEIGHT),
+                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
+                    )
+                )
+                .build()
+
             val imageAnalysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setResolutionSelector(resolutionSelector)
                 .build()
 
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
             imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                Log.d(
-                    TAG,
-                    "Frame received: ${imageProxy.width}x${imageProxy.height}, " +
-                            "format: ${imageProxy.format}, "
-                )
+                if (ProcessingConfig.ENABLE_VERBOSE_LOGGING) {
+                    Log.d(
+                        TAG,
+                        "Frame received: ${imageProxy.width}x${imageProxy.height}, " +
+                                "format: ${imageProxy.format}, "
+                    )
+                }
 
                 onFrameReceived(imageProxy)
             }

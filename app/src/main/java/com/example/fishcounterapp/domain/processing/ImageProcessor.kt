@@ -5,6 +5,7 @@ import android.util.Log
 import org.opencv.android.Utils
 import org.opencv.core.Mat
 import androidx.core.graphics.createBitmap
+import com.example.fishcounterapp.utils.ProcessingConfig
 import org.opencv.imgproc.Imgproc
 
 class ImageProcessor {
@@ -27,7 +28,9 @@ class ImageProcessor {
 
             if (!mat.empty()) {
                 matsCreated++
-                Log.d(TAG, "Mats created: $matsCreated, released: $matsReleased")
+                if (ProcessingConfig.ENABLE_VERBOSE_LOGGING) {
+                    Log.d(TAG, "Mats created: $matsCreated, released: $matsReleased")
+                }
                 mat
             } else {
                 mat.release()
@@ -72,18 +75,20 @@ class ImageProcessor {
     }
 
     fun logMatInfo(mat: Mat, label: String = "Mat") {
-        Log.d(
-            TAG, """
-            $label info:
-            - Size: ${mat.cols()}x${mat.rows()}
-            - Channels: ${mat.channels()}
-            - Depth: ${mat.depth()}
-            - Type: ${mat.type()}
-            - Total elements: ${mat.total()}
-            - Is empty: ${mat.empty()}
-            - Is continuous: ${mat.isContinuous}
-        """.trimIndent()
-        )
+        if (ProcessingConfig.ENABLE_VERBOSE_LOGGING) {
+            Log.d(
+                TAG, """
+                $label info:
+                - Size: ${mat.cols()}x${mat.rows()}
+                - Channels: ${mat.channels()}
+                - Depth: ${mat.depth()}
+                - Type: ${mat.type()}
+                - Total elements: ${mat.total()}
+                - Is empty: ${mat.empty()}
+                - Is continuous: ${mat.isContinuous}
+            """.trimIndent()
+            )
+        }
     }
 
     fun convertToGrayscale(colorMat: Mat): Mat {
@@ -93,18 +98,24 @@ class ImageProcessor {
             4 -> {
                 // BGRA (4 channels) -> Gray
                 Imgproc.cvtColor(colorMat, grayMat, Imgproc.COLOR_BGRA2GRAY)
-                Log.d(TAG, "Converted BGRA to Grayscale")
+                if (ProcessingConfig.ENABLE_VERBOSE_LOGGING) {
+                    Log.d(TAG, "Converted BGRA to Grayscale")
+                }
             }
 
             3 -> {
                 // BGR (3 channels) -> Gray
                 Imgproc.cvtColor(colorMat, grayMat, Imgproc.COLOR_BGR2GRAY)
-                Log.d(TAG, "Converted BGRA to Grayscale")
+                if (ProcessingConfig.ENABLE_VERBOSE_LOGGING) {
+                    Log.d(TAG, "Converted BGR to Grayscale")
+                }
             }
 
             1 -> {
                 // Already grayscale
-                Log.d(TAG, "Mat already Grayscale")
+                if (ProcessingConfig.ENABLE_VERBOSE_LOGGING) {
+                    Log.d(TAG, "Mat already Grayscale")
+                }
                 return colorMat.clone()
             }
 
