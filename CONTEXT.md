@@ -37,7 +37,7 @@ Native Android app using computer vision to automate fish counting via smartphon
 
 ### Physical Setup
 
-```
+```text
 ┌─────────────────────────────────────┐
 │  Smartphone (mounted above)         │
 │         ↓ Camera                    │
@@ -60,7 +60,7 @@ Native Android app using computer vision to automate fish counting via smartphon
 
 ### MVVM Pattern
 
-```
+```text
 ┌─────────────────────────────────────────────────────┐
 │                      View Layer                      │
 │  (Jetpack Compose - UI Components)                  │
@@ -95,6 +95,7 @@ Native Android app using computer vision to automate fish counting via smartphon
 │  - ImageConverter.kt (format conversions & stats)   │
 │  - ProcessingConfig.kt (centralized configuration)  │
 └─────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -105,8 +106,8 @@ Native Android app using computer vision to automate fish counting via smartphon
 - **Language:** Kotlin
 - **UI Framework:** Jetpack Compose
 - **Architecture:** MVVM
-- **Camera:** CameraX (androidx.camera:camera-*)
-- **Computer Vision:** OpenCV 4.10.0 (org.opencv:opencv)
+- **Camera:** CameraX (`androidx.camera:camera-*`)
+- **Computer Vision:** OpenCV 4.10.0 (`org.opencv:opencv`)
 
 ---
 
@@ -116,9 +117,9 @@ Native Android app using computer vision to automate fish counting via smartphon
 
 - ✅ Task 1.1: Setup CameraX dependencies
 - ✅ Task 1.2: Request camera permissions (runtime)
-- ✅ Task 1.3: Implement camera preview with PreviewView
+- ✅ Task 1.3: Implement camera preview with `PreviewView`
 - ✅ Task 1.4: Add camera start/stop controls
-- ✅ Task 1.5: Handle lifecycle properly (DisposableEffect)
+- ✅ Task 1.5: Handle lifecycle properly (`DisposableEffect`)
 
 ---
 
@@ -126,8 +127,8 @@ Native Android app using computer vision to automate fish counting via smartphon
 
 - ✅ Task 2.1: Add OpenCV dependency
 - ✅ Task 2.2: Initialize OpenCV in `FishCounterApplication`
-- ✅ Task 2.3: Setup ImageAnalysis use case
-- ✅ Task 2.4: Optimized ImageProxy → Mat conversion (Direct YUV → BGR)
+- ✅ Task 2.3: Setup `ImageAnalysis` use case
+- ✅ Task 2.4: Optimized `ImageProxy` → `Mat` conversion (Direct YUV → BGR)
 - ✅ Task 2.5: Integrated `ProcessingConfig` for global parameter tuning
 - ✅ Task 2.6: Implemented conversion error tracking and statistics
 - ✅ Task 2.7: Cleaned up and documented `CameraViewModel`
@@ -154,7 +155,7 @@ Native Android app using computer vision to automate fish counting via smartphon
 
 ### File Organization (Current)
 
-```
+```text
 app/src/main/java/com/example/fishcounterapp/
 │
 ├── FishCounterApplication.kt            # Application class (OpenCV init)
@@ -187,7 +188,7 @@ app/src/main/java/com/example/fishcounterapp/
 All tunable parameters (Resolution, JPEG Quality, Logging, Default Grayscale state) are managed here, ensuring consistency across the app.
 
 ### 2. High-Performance Conversion (`ImageConverter.kt`)
-- **Direct YUV→Mat**: Bypasses Bitmaps to save ~15-20ms per frame.
+- **Direct YUV → Mat**: Bypasses Bitmaps to save ~15-20ms per frame.
 - **Error Tracking**: Tracks `directAttempts`, `directFailures`, and `fallbackAttempts`.
 - **Automatic Fallback**: Reverts to JPEG-based conversion if direct mapping fails.
 
