@@ -28,6 +28,9 @@ import org.opencv.core.Mat
  * @property isGrayscaleEnabled Whether grayscale processing is currently active.
  * @property processedBitmap The latest processed frame to be displayed.
  * @property currentFps Current frames per second of the processing pipeline.
+ * @property isBackgroundCaptured Whether a background reference frame is stored.
+ * @property isCapturingBackground Whether the next frame should be captured as background.
+ * @property isSubtractionEnabled Whether background subtraction is currently active.
  */
 data class CameraUiState(
     val hasPermission: Boolean = false,
@@ -36,17 +39,14 @@ data class CameraUiState(
     val isOpenCvAvailable: Boolean = false,
     val isGrayscaleEnabled: Boolean = ProcessingConfig.GRAYSCALE_ENABLED_BY_DEFAULT,
     val processedBitmap: Bitmap? = null,
-    val currentFps: Int = 0
+    val currentFps: Int = 0,
+    val isBackgroundCaptured: Boolean = false,
+    val isCapturingBackground: Boolean = false,
+    val isSubtractionEnabled: Boolean = false
 )
 
 /**
  * ViewModel responsible for managing camera state and image processing orchestration.
- *
- * This ViewModel handles:
- * 1. Camera lifecycle and permission states.
- * 2. Receiving frames from CameraX.
- * 3. Routing frames through [ImageProcessor] and [ImageConverter].
- * 4. Maintaining UI state for the camera preview and processing results.
  */
 class CameraViewModel(
     private val cameraRepository: CameraRepository,
@@ -57,8 +57,6 @@ class CameraViewModel(
     companion object {
         private const val TAG = "CameraViewModel"
     }
-
-    // --- State Management ---
 
     private val _uiState = MutableStateFlow(
         CameraUiState(
@@ -75,9 +73,6 @@ class CameraViewModel(
 
     // --- Camera & Permission Actions ---
 
-    /**
-     * Handles the result of the camera permission request.
-     */
     fun onPermissionResult(isGranted: Boolean) {
         _uiState.update { it.copy(hasPermission = isGranted) }
         if (!isGranted) {
@@ -85,24 +80,15 @@ class CameraViewModel(
         }
     }
 
-    /**
-     * Starts the camera session.
-     */
     fun startCamera() {
         _uiState.update { it.copy(isCameraRunning = true) }
     }
 
-    /**
-     * Stops the camera session and releases resources.
-     */
     fun stopCamera() {
         _uiState.update { it.copy(isCameraRunning = false) }
         cameraRepository.releaseCamera()
     }
 
-    /**
-     * Toggles the grayscale processing filter.
-     */
     fun toggleGrayscale() {
         _uiState.update {
             it.copy(
@@ -111,17 +97,30 @@ class CameraViewModel(
         }
     }
 
+    // --- Background Capture & Subtraction Actions ---
+
+    fun requestBackgroundCapture() {
+        _uiState.update { it.copy(isCapturingBackground = true) }
+    }
+
+    fun clearBackground() {
+        imageProcessor?.clearBackground()
+        _uiState.update { 
+            it.copy(
+                isBackgroundCaptured = false,
+                isSubtractionEnabled = false // Disable subtraction if BG is cleared
+            ) 
+        }
+    }
+
+    fun toggleSubtraction() {
+        if (_uiState.value.isBackgroundCaptured) {
+            _uiState.update { it.copy(isSubtractionEnabled = !it.isSubtractionEnabled) }
+        }
+    }
+
     // --- Frame Processing ---
 
-    /**
-     * Processes a new frame received from the camera.
-     *
-     * This method:
-     * 1. Converts [ImageProxy] to OpenCV [Mat].
-     * 2. Applies optional grayscale filter.
-     * 3. Converts [Mat] back to [Bitmap] for UI display.
-     * 4. Updates FPS tracking.
-     */
     fun onFrameReceived(imageProxy: ImageProxy) {
         viewModelScope.launch(Dispatchers.Default) {
             val startTime = System.currentTimeMillis()
@@ -130,35 +129,48 @@ class CameraViewModel(
             var processedBitmap: Bitmap? = null
             
             try {
-                if (imageProcessor == null) {
-                    if (ProcessingConfig.ENABLE_VERBOSE_LOGGING) {
-                        Log.w(TAG, "Failed to convert frame to bitmap")
-                    }
-                    return@launch
-                }
+                if (imageProcessor == null) return@launch
 
                 // 1. Convert ImageProxy to Mat
                 colorMat = ImageConverter.imageProxyToMatDirect(imageProxy)
                 if (colorMat == null) return@launch
 
-                // 2. Process the Mat
-                if (_uiState.value.isGrayscaleEnabled) {
+                // 2. Handle Background Capture if requested
+                if (_uiState.value.isCapturingBackground) {
                     grayMat = imageProcessor.convertToGrayscale(colorMat)
-                    processedBitmap = imageProcessor.matToBitmap(grayMat)
-
-                    val processingTime = System.currentTimeMillis() - startTime
-                    if (ProcessingConfig.LOG_FRAME_TIMING) {
-                        Log.d(TAG, "Grayscale processed: ${processingTime}ms")
-                    }
-                } else {
-                    processedBitmap = imageProcessor.matToBitmap(colorMat)
-                    val processingTime = System.currentTimeMillis() - startTime
-                    if (ProcessingConfig.LOG_FRAME_TIMING) {
-                        Log.d(TAG, "Color processed: ${processingTime}ms")
+                    imageProcessor.setBackground(grayMat)
+                    
+                    withContext(Dispatchers.Main) {
+                        _uiState.update { 
+                            it.copy(
+                                isCapturingBackground = false,
+                                isBackgroundCaptured = true
+                            ) 
+                        }
                     }
                 }
 
-                // 3. Update UI
+                // 3. Process the Mat for display
+                val currentState = _uiState.value
+                
+                if (currentState.isSubtractionEnabled) {
+                    // Perform Background Subtraction
+                    val maskMat = imageProcessor.subtractBackground(colorMat)
+                    if (maskMat != null) {
+                        processedBitmap = imageProcessor.matToBitmap(maskMat)
+                        maskMat.release()
+                    }
+                } else if (currentState.isGrayscaleEnabled) {
+                    // Normal Grayscale Display
+                    val displayGrayMat = grayMat ?: imageProcessor.convertToGrayscale(colorMat)
+                    processedBitmap = imageProcessor.matToBitmap(displayGrayMat)
+                    if (grayMat == null) displayGrayMat.release()
+                } else {
+                    // Normal Color Display
+                    processedBitmap = imageProcessor.matToBitmap(colorMat)
+                }
+
+                // 4. Update UI
                 withContext(Dispatchers.Main) {
                     _uiState.update {
                         it.copy(processedBitmap = processedBitmap)
@@ -170,11 +182,8 @@ class CameraViewModel(
             } catch (e: Exception) {
                 Log.e(TAG, "Error converting frame", e)
             } finally {
-                // 4. Resource Cleanup
-                if (colorMat != null) {
-                    colorMat.release()
-                    imageProcessor?.onMatReleased()
-                }
+                // 5. Resource Cleanup
+                colorMat?.release()
                 grayMat?.release()
                 imageProxy.close()
             }
@@ -186,26 +195,16 @@ class CameraViewModel(
     private var frameCount = 0
     private var lastFpsTime = System.currentTimeMillis()
 
-    /**
-     * Updates the FPS counter based on the time elapsed since the last second.
-     */
     private fun updateFpsCounter() {
         frameCount++
-
         val currentTime = System.currentTimeMillis()
         val elapsed = currentTime - lastFpsTime
 
         if (elapsed >= ProcessingConfig.FPS_UPDATE_INTERVAL_MS) {
             val fps = (frameCount * 1000) / elapsed
-
             viewModelScope.launch(Dispatchers.Main) {
                 _uiState.update { it.copy(currentFps = fps.toInt()) }
             }
-
-            if (ProcessingConfig.ENABLE_VERBOSE_LOGGING) {
-                Log.d(TAG, "FPS: $fps")
-            }
-
             frameCount = 0
             lastFpsTime = currentTime
         }

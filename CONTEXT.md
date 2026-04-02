@@ -1,7 +1,7 @@
 # Fish Counter Mobile App - Project Documentation
 
 **Last Updated:** October 26, 2024  
-**Current Status:** Phase 2 Complete (Optimization & Config) - Ready for Phase 3 (Fish Detection)  
+**Current Status:** Phase 3 In Progress (Tasks 3.1 & 3.2 Complete)  
 **Developer:** Dan (BS IT, Junior Software Developer, Pampanga, Philippines)
 
 ---
@@ -134,20 +134,20 @@ Native Android app using computer vision to automate fish counting via smartphon
 - ✅ Task 2.7: Cleaned up and documented `CameraViewModel`
 - ✅ Task 2.8: Applied `ResolutionSelector` in `CameraRepository` for 640x480 targets
 
-**Current Performance:** 20-23 FPS (optimized pipeline).
-
 ---
 
-### Phase 3: Fish Detection 🔄 READY TO START
+### Phase 3: Fish Detection 🔄 IN PROGRESS
 
-- ⏳ Task 3.1: Capture background reference
-- ⏳ Task 3.2: Background subtraction
+- ✅ Task 3.1: Capture background reference
+- ✅ Task 3.2: Background subtraction
 - ⏳ Task 3.3: Binary thresholding
 - ⏳ Task 3.4: Morphological operations (noise reduction)
 - ⏳ Task 3.5: Blob detection (find contours)
 - ⏳ Task 3.6: Define counting line
 - ⏳ Task 3.7: Fish tracking (assign IDs, track movement)
 - ⏳ Task 3.8: Display results and testing
+
+**Current Performance:** 18-22 FPS (with subtraction active).
 
 ---
 
@@ -165,14 +165,15 @@ app/src/main/java/com/example/fishcounterapp/
 │   ├── data/
 │   │   └── CameraRepository.kt          # CameraX setup (ResolutionSelector)
 │   ├── ui/
-│   │   ├── CameraScreen.kt              # UI Entry point
+│   │   ├── CameraScreen.kt              # UI Entry point & Status Indicators
+│   │   ├── CameraControls.kt            # New buttons for BG capture & Subtraction
 │   │   └── ProcessedImageView.kt        # Display component
 │   └── viewmodel/
 │       └── CameraViewModel.kt           # Business logic & Pipeline orchestration
 │
 ├── domain/
 │   └── processing/
-│       └── ImageProcessor.kt            # OpenCV operations (Grayscale, Mat2Bitmap)
+│       └── ImageProcessor.kt            # OpenCV operations (BG Subtraction, Threshold)
 │
 └── utils/
     ├── ImageConverter.kt                # Optimized YUV→Mat & Stats tracking
@@ -190,10 +191,11 @@ All tunable parameters (Resolution, JPEG Quality, Logging, Default Grayscale sta
 ### 2. High-Performance Conversion (`ImageConverter.kt`)
 - **Direct YUV → Mat**: Bypasses Bitmaps to save ~15-20ms per frame.
 - **Error Tracking**: Tracks `directAttempts`, `directFailures`, and `fallbackAttempts`.
-- **Automatic Fallback**: Reverts to JPEG-based conversion if direct mapping fails.
 
-### 3. Modern CameraX Setup (`CameraRepository.kt`)
-Uses `ResolutionSelector` and `ResolutionStrategy` instead of deprecated `setTargetResolution`, ensuring the app requests the optimal 640x480 resolution defined in config.
+### 3. Background Subtraction Pipeline (`ImageProcessor.kt`)
+- **Reference Capture**: Stores a grayscale `Mat` of the empty scene.
+- **`absdiff` & Masking**: Calculates difference between live feed and reference.
+- **Morphology**: Uses `MORPH_OPEN` to eliminate isolated pixel noise.
 
 ---
 
@@ -201,18 +203,17 @@ Uses `ResolutionSelector` and `ResolutionStrategy` instead of deprecated `setTar
 
 *Reference for upcoming tasks:*
 
-1. **Background Subtraction**: `absdiff(currentFrame, backgroundMat, diff)`
-2. **Thresholding**: `Imgproc.threshold` with tunable values from `ProcessingConfig`.
-3. **Morphological Ops**: `Imgproc.morphologyEx` for noise cleanup.
-4. **Contours**: `Imgproc.findContours` filtered by area range.
-5. **Tracking**: ID assignment and distance-based centroid matching.
+1. **Thresholding**: Refining `Imgproc.threshold` with tunable values for "Dark on Light" detection.
+2. **Contours**: `Imgproc.findContours` filtered by area range to identify fish blobs.
+3. **Tracking**: Centroid-based matching across frames.
+4. **Counting**: Incrementing total count when a fish centroid crosses the defined line.
 
 ---
 
 ## Known Issues & Solutions
 
 - **Memory Management**: Strictly using `try-finally` with `mat.release()` and `imageProxy.close()`.
-- **FPS Stability**: Maintaining ~20 FPS; monitored via real-time UI indicator.
+- **Lighting Sensitivity**: Subtraction requires a static background; "Retake" button provided for environment changes.
 
 ---
 

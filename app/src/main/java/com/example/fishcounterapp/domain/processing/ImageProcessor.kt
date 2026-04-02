@@ -6,6 +6,7 @@ import org.opencv.android.Utils
 import org.opencv.core.Mat
 import androidx.core.graphics.createBitmap
 import com.example.fishcounterapp.utils.ProcessingConfig
+import org.opencv.core.Core
 import org.opencv.imgproc.Imgproc
 
 class ImageProcessor {
@@ -20,6 +21,84 @@ class ImageProcessor {
 
     private var matsCreated = 0
     private var matsReleased = 0
+
+    private var backgroundMat: Mat? = null
+
+    /**
+     * Captures and stores a copy of the provided Mat as the background reference.
+     * Expects a grayscale Mat.
+     */
+    fun setBackground(mat: Mat) {
+        backgroundMat?.release()
+        backgroundMat = mat.clone()
+        if (ProcessingConfig.ENABLE_VERBOSE_LOGGING) {
+            Log.d(TAG, "Background reference captured. Size: ${mat.cols()}x${mat.rows()}")
+        }
+    }
+
+    /**
+     * Returns the current background reference Mat.
+     */
+    fun getBackground(): Mat? = backgroundMat
+
+    /**
+     * Releases the background reference memory.
+     */
+    fun clearBackground() {
+        backgroundMat?.release()
+        backgroundMat = null
+        if (ProcessingConfig.ENABLE_VERBOSE_LOGGING) {
+            Log.d(TAG, "Background reference cleared")
+        }
+    }
+
+    /**
+     * Checks if a valid background reference is currently stored.
+     */
+    fun hasBackground(): Boolean = backgroundMat != null && !backgroundMat!!.empty()
+
+    /**
+     * Subtracts the stored background from the current frame.
+     * @param currentFrame The frame to process (color or grayscale).
+     * @return A binary mask where movement is detected, or null if no background is set.
+     */
+    fun subtractBackground(currentFrame: Mat): Mat? {
+        val bg = backgroundMat ?: return null
+        if (bg.empty()) return null
+
+        val grayFrame = convertToGrayscale(currentFrame)
+        val diffMat = Mat()
+        val maskMat = Mat()
+
+        try {
+            // 1. Absolute difference
+            Core.absdiff(bg, grayFrame, diffMat)
+
+            // 2. Thresholding to create binary mask
+            // Using configurable threshold values
+            Imgproc.threshold(
+                diffMat, 
+                maskMat, 
+                ProcessingConfig.SUBTRACTION_THRESHOLD, 
+                ProcessingConfig.BINARY_MAX_VALUE, 
+                Imgproc.THRESH_BINARY
+            )
+
+            // 3. Optional: Noise reduction (Dilation then Erosion - Closing)
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, org.opencv.core.Size(3.0, 3.0))
+            Imgproc.morphologyEx(maskMat, maskMat, Imgproc.MORPH_OPEN, kernel)
+            kernel.release()
+
+            return maskMat
+        } catch (e: Exception) {
+            Log.e(TAG, "Background subtraction failed", e)
+            maskMat.release()
+            return null
+        } finally {
+            grayFrame.release()
+            diffMat.release()
+        }
+    }
 
     fun bitmapToMap(bitmap: Bitmap): Mat? {
         return try {
@@ -92,39 +171,17 @@ class ImageProcessor {
     }
 
     fun convertToGrayscale(colorMat: Mat): Mat {
+        if (colorMat.channels() == 1) return colorMat.clone()
+        
         val grayMat = Mat()
-
         when (colorMat.channels()) {
-            4 -> {
-                // BGRA (4 channels) -> Gray
-                Imgproc.cvtColor(colorMat, grayMat, Imgproc.COLOR_BGRA2GRAY)
-                if (ProcessingConfig.ENABLE_VERBOSE_LOGGING) {
-                    Log.d(TAG, "Converted BGRA to Grayscale")
-                }
-            }
-
-            3 -> {
-                // BGR (3 channels) -> Gray
-                Imgproc.cvtColor(colorMat, grayMat, Imgproc.COLOR_BGR2GRAY)
-                if (ProcessingConfig.ENABLE_VERBOSE_LOGGING) {
-                    Log.d(TAG, "Converted BGR to Grayscale")
-                }
-            }
-
-            1 -> {
-                // Already grayscale
-                if (ProcessingConfig.ENABLE_VERBOSE_LOGGING) {
-                    Log.d(TAG, "Mat already Grayscale")
-                }
-                return colorMat.clone()
-            }
-
+            4 -> Imgproc.cvtColor(colorMat, grayMat, Imgproc.COLOR_BGRA2GRAY)
+            3 -> Imgproc.cvtColor(colorMat, grayMat, Imgproc.COLOR_BGR2GRAY)
             else -> {
-                Log.e(TAG, "Unsupported channel count: ${colorMat.channels()}")
+                Log.e(TAG, "Unsupported channel count for grayscale: ${colorMat.channels()}")
                 return colorMat.clone()
             }
         }
-
         return grayMat
     }
 }

@@ -15,6 +15,15 @@ object ProcessingConfig {
     // Grayscale conversion
     const val GRAYSCALE_ENABLED_BY_DEFAULT = false
 
+    // Background Subtraction & Thresholding
+    /**
+     * Threshold for background subtraction.
+     * Higher values = less sensitive to noise/subtle light changes.
+     * Lower values = more sensitive (detects smaller/fainter movements).
+     */
+    const val SUBTRACTION_THRESHOLD = 35.0
+    const val BINARY_MAX_VALUE = 255.0
+
     // Performance monitoring
     const val FPS_UPDATE_INTERVAL_MS = 1000L  // Update FPS every second
 

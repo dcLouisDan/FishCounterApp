@@ -4,11 +4,14 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,6 +59,50 @@ fun CameraScreen(
                 processedBitmap = uiState.processedBitmap,
                 currentFps = uiState.currentFps
             )
+
+            // Status Indicators
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.End
+            ) {
+                if (uiState.isCameraRunning && uiState.isBackgroundCaptured) {
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "Background Ready",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+
+                if (uiState.isSubtractionEnabled) {
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.8f),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "Subtraction Active",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+            }
+
             if (!uiState.isCameraRunning) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     Column(
@@ -68,11 +115,10 @@ fun CameraScreen(
                     }
                 }
             }
+
             CameraControls(
                 modifier = Modifier
-                    .align(
-                        Alignment.BottomCenter
-                    )
+                    .align(Alignment.BottomCenter)
                     .padding(bottom = 16.dp),
                 isCameraRunning = uiState.isCameraRunning,
                 onStartCamera = {
@@ -82,6 +128,17 @@ fun CameraScreen(
                 isGrayscaleEnabled = uiState.isGrayscaleEnabled,
                 onToggleGrayscale = {
                     cameraViewModel.toggleGrayscale()
+                },
+                isBackgroundCaptured = uiState.isBackgroundCaptured,
+                onCaptureBackground = {
+                    cameraViewModel.requestBackgroundCapture()
+                },
+                onClearBackground = {
+                    cameraViewModel.clearBackground()
+                },
+                isSubtractionEnabled = uiState.isSubtractionEnabled,
+                onToggleSubtraction = {
+                    cameraViewModel.toggleSubtraction()
                 }
             )
         } else {
@@ -98,7 +155,12 @@ fun CameraScreen(
                     isGrayscaleEnabled = uiState.isGrayscaleEnabled,
                     onToggleGrayscale = {
                         cameraViewModel.toggleGrayscale()
-                    }
+                    },
+                    isBackgroundCaptured = false,
+                    onCaptureBackground = {},
+                    onClearBackground = {},
+                    isSubtractionEnabled = false,
+                    onToggleSubtraction = {}
                 )
             }
         }
@@ -108,5 +170,3 @@ fun CameraScreen(
         }
     }
 }
-
-
