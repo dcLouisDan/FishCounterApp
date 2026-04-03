@@ -3,10 +3,11 @@ package com.example.fishcounterapp.domain.processing
 import android.graphics.Bitmap
 import android.util.Log
 import org.opencv.android.Utils
-import org.opencv.core.Mat
+import org.opencv.core.*
 import androidx.core.graphics.createBitmap
 import com.example.fishcounterapp.utils.ProcessingConfig
 import org.opencv.core.Core
+import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 
 class ImageProcessor {
@@ -75,7 +76,6 @@ class ImageProcessor {
             Core.absdiff(bg, grayFrame, diffMat)
 
             // 2. Thresholding to create binary mask
-            // Using configurable threshold values
             Imgproc.threshold(
                 diffMat, 
                 maskMat, 
@@ -84,8 +84,14 @@ class ImageProcessor {
                 Imgproc.THRESH_BINARY
             )
 
-            // 3. Optional: Noise reduction (Dilation then Erosion - Closing)
-            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, org.opencv.core.Size(3.0, 3.0))
+            // 3. Noise reduction using configured kernel size
+            val kernelSize = ProcessingConfig.MORPH_KERNEL_SIZE
+            val kernel = Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT, 
+                Size(kernelSize, kernelSize)
+            )
+            
+            // MORPH_OPEN = Erosion then Dilation (removes small white noise)
             Imgproc.morphologyEx(maskMat, maskMat, Imgproc.MORPH_OPEN, kernel)
             kernel.release()
 
@@ -97,6 +103,70 @@ class ImageProcessor {
         } finally {
             grayFrame.release()
             diffMat.release()
+        }
+    }
+
+    /**
+     * Detects fish blobs in the provided binary mask.
+     */
+    fun detectFish(mask: Mat): List<FishBlob> {
+        val contours = mutableListOf<MatOfPoint>()
+        val hierarchy = Mat()
+        val fishBlobs = mutableListOf<FishBlob>()
+
+        try {
+            // Find all contours in the mask
+            Imgproc.findContours(
+                mask, 
+                contours, 
+                hierarchy, 
+                Imgproc.RETR_EXTERNAL, 
+                Imgproc.CHAIN_APPROX_SIMPLE
+            )
+
+            for (contour in contours) {
+                val area = Imgproc.contourArea(contour)
+                
+                // Filter by area to exclude noise and large artifacts
+                if (area >= ProcessingConfig.MIN_FISH_AREA && area <= ProcessingConfig.MAX_FISH_AREA) {
+                    val moments = Imgproc.moments(contour)
+                    val centerX = moments._m10 / moments._m00
+                    val centerY = moments._m01 / moments._m00
+                    
+                    val rect = Imgproc.boundingRect(contour)
+                    
+                    fishBlobs.add(
+                        FishBlob(
+                            center = Point(centerX, centerY),
+                            boundingBox = rect,
+                            area = area
+                        )
+                    )
+                }
+                contour.release() // Release each contour mat
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Fish detection failed", e)
+        } finally {
+            hierarchy.release()
+        }
+
+        return fishBlobs
+    }
+
+    /**
+     * Draws detection overlays (bounding boxes and centers) on the frame.
+     */
+    fun drawDetections(frame: Mat, blobs: List<FishBlob>) {
+        val color = Scalar(0.0, 255.0, 0.0) // Green
+        val thickness = 2
+
+        for (blob in blobs) {
+            // Draw bounding box
+            Imgproc.rectangle(frame, blob.boundingBox.tl(), blob.boundingBox.br(), color, thickness)
+            
+            // Draw center point
+            Imgproc.circle(frame, blob.center, 4, color, -1)
         }
     }
 

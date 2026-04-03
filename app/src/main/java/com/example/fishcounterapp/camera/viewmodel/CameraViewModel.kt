@@ -6,6 +6,7 @@ import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.fishcounterapp.camera.data.CameraRepository
+import com.example.fishcounterapp.domain.processing.FishBlob
 import com.example.fishcounterapp.domain.processing.ImageProcessor
 import com.example.fishcounterapp.utils.ImageConverter
 import com.example.fishcounterapp.utils.ProcessingConfig
@@ -20,17 +21,6 @@ import org.opencv.core.Mat
 
 /**
  * UI State for the Camera screen.
- *
- * @property hasPermission Whether camera permission has been granted.
- * @property isCameraRunning Whether the camera is currently active.
- * @property errorMessage Optional error message to display to the user.
- * @property isOpenCvAvailable Whether OpenCV has been successfully initialized.
- * @property isGrayscaleEnabled Whether grayscale processing is currently active.
- * @property processedBitmap The latest processed frame to be displayed.
- * @property currentFps Current frames per second of the processing pipeline.
- * @property isBackgroundCaptured Whether a background reference frame is stored.
- * @property isCapturingBackground Whether the next frame should be captured as background.
- * @property isSubtractionEnabled Whether background subtraction is currently active.
  */
 data class CameraUiState(
     val hasPermission: Boolean = false,
@@ -42,7 +32,8 @@ data class CameraUiState(
     val currentFps: Int = 0,
     val isBackgroundCaptured: Boolean = false,
     val isCapturingBackground: Boolean = false,
-    val isSubtractionEnabled: Boolean = false
+    val isSubtractionEnabled: Boolean = false,
+    val detectedFishCount: Int = 0
 )
 
 /**
@@ -108,7 +99,8 @@ class CameraViewModel(
         _uiState.update { 
             it.copy(
                 isBackgroundCaptured = false,
-                isSubtractionEnabled = false // Disable subtraction if BG is cleared
+                isSubtractionEnabled = false,
+                detectedFishCount = 0
             ) 
         }
     }
@@ -127,6 +119,7 @@ class CameraViewModel(
             var colorMat: Mat? = null
             var grayMat: Mat? = null
             var processedBitmap: Bitmap? = null
+            var fishCount = 0
             
             try {
                 if (imageProcessor == null) return@launch
@@ -150,30 +143,41 @@ class CameraViewModel(
                     }
                 }
 
-                // 3. Process the Mat for display
+                // 3. Process the Mat for display and detection
                 val currentState = _uiState.value
                 
                 if (currentState.isSubtractionEnabled) {
                     // Perform Background Subtraction
                     val maskMat = imageProcessor.subtractBackground(colorMat)
                     if (maskMat != null) {
-                        processedBitmap = imageProcessor.matToBitmap(maskMat)
+                        // Detect Fish Blobs
+                        val blobs = imageProcessor.detectFish(maskMat)
+                        fishCount = blobs.size
+                        
+                        // Draw Detections on color frame for feedback
+                        imageProcessor.drawDetections(colorMat, blobs)
+                        
+                        // Decide what to display: Mask or Color with Detections?
+                        // For now, let's show color with detections to verify it works
+                        processedBitmap = imageProcessor.matToBitmap(colorMat)
+                        
                         maskMat.release()
                     }
                 } else if (currentState.isGrayscaleEnabled) {
-                    // Normal Grayscale Display
                     val displayGrayMat = grayMat ?: imageProcessor.convertToGrayscale(colorMat)
                     processedBitmap = imageProcessor.matToBitmap(displayGrayMat)
                     if (grayMat == null) displayGrayMat.release()
                 } else {
-                    // Normal Color Display
                     processedBitmap = imageProcessor.matToBitmap(colorMat)
                 }
 
                 // 4. Update UI
                 withContext(Dispatchers.Main) {
                     _uiState.update {
-                        it.copy(processedBitmap = processedBitmap)
+                        it.copy(
+                            processedBitmap = processedBitmap,
+                            detectedFishCount = fishCount
+                        )
                     }
                 }
                 

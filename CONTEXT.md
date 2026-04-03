@@ -1,7 +1,7 @@
 # Fish Counter Mobile App - Project Documentation
 
 **Last Updated:** October 26, 2024  
-**Current Status:** Phase 3 In Progress (Tasks 3.1 & 3.2 Complete)  
+**Current Status:** Phase 3 In Progress (Tasks 3.1 - 3.5 Complete)  
 **Developer:** Dan (BS IT, Junior Software Developer, Pampanga, Philippines)
 
 ---
@@ -90,6 +90,7 @@ Native Android app using computer vision to automate fish counting via smartphon
 │                                                      │
 │  Domain Processing:                                 │
 │  - ImageProcessor.kt (OpenCV operations)            │
+│  - FishBlob.kt (Data model for detected fish)       │
 │                                                      │
 │  Utilities:                                         │
 │  - ImageConverter.kt (format conversions & stats)   │
@@ -140,14 +141,14 @@ Native Android app using computer vision to automate fish counting via smartphon
 
 - ✅ Task 3.1: Capture background reference
 - ✅ Task 3.2: Background subtraction
-- ⏳ Task 3.3: Binary thresholding
-- ⏳ Task 3.4: Morphological operations (noise reduction)
-- ⏳ Task 3.5: Blob detection (find contours)
+- ✅ Task 3.3: Binary thresholding (Parameterized)
+- ✅ Task 3.4: Morphological operations (Parameterized)
+- ✅ Task 3.5: Blob detection (Find contours)
 - ⏳ Task 3.6: Define counting line
 - ⏳ Task 3.7: Fish tracking (assign IDs, track movement)
 - ⏳ Task 3.8: Display results and testing
 
-**Current Performance:** 18-22 FPS (with subtraction active).
+**Current Performance:** 18-22 FPS (with subtraction & detection active).
 
 ---
 
@@ -173,7 +174,8 @@ app/src/main/java/com/example/fishcounterapp/
 │
 ├── domain/
 │   └── processing/
-│       └── ImageProcessor.kt            # OpenCV operations (BG Subtraction, Threshold)
+│       ├── ImageProcessor.kt            # OpenCV operations (BG Subtraction, Detection)
+│       └── FishBlob.kt                  # Fish data model
 │
 └── utils/
     ├── ImageConverter.kt                # Optimized YUV→Mat & Stats tracking
@@ -186,16 +188,16 @@ app/src/main/java/com/example/fishcounterapp/
 ## Key Implementation Details
 
 ### 1. Centralized Configuration (`ProcessingConfig.kt`)
-All tunable parameters (Resolution, JPEG Quality, Logging, Default Grayscale state) are managed here, ensuring consistency across the app.
+All tunable parameters (Resolution, Thresholds, Area filters, Kernel sizes) are managed here, ensuring consistency across the app.
 
 ### 2. High-Performance Conversion (`ImageConverter.kt`)
 - **Direct YUV → Mat**: Bypasses Bitmaps to save ~15-20ms per frame.
-- **Error Tracking**: Tracks `directAttempts`, `directFailures`, and `fallbackAttempts`.
 
-### 3. Background Subtraction Pipeline (`ImageProcessor.kt`)
-- **Reference Capture**: Stores a grayscale `Mat` of the empty scene.
-- **`absdiff` & Masking**: Calculates difference between live feed and reference.
-- **Morphology**: Uses `MORPH_OPEN` to eliminate isolated pixel noise.
+### 3. Fish Detection Pipeline (`ImageProcessor.kt`)
+- **Background Subtraction**: `absdiff` between live feed and reference.
+- **Masking**: Binary thresholding and morphological `OPEN` operation.
+- **Contour Analysis**: `findContours` + area filtering + centroid calculation.
+- **Visual Feedback**: Real-time green bounding boxes and centroids drawn on the UI.
 
 ---
 
@@ -203,17 +205,16 @@ All tunable parameters (Resolution, JPEG Quality, Logging, Default Grayscale sta
 
 *Reference for upcoming tasks:*
 
-1. **Thresholding**: Refining `Imgproc.threshold` with tunable values for "Dark on Light" detection.
-2. **Contours**: `Imgproc.findContours` filtered by area range to identify fish blobs.
-3. **Tracking**: Centroid-based matching across frames.
-4. **Counting**: Incrementing total count when a fish centroid crosses the defined line.
+1. **Counting Line**: Defining a virtual crossing point in the frame.
+2. **Tracking**: Assigning IDs and tracking centroids across consecutive frames.
+3. **Counter Logic**: Incrementing total count when a fish crosses the line.
 
 ---
 
 ## Known Issues & Solutions
 
 - **Memory Management**: Strictly using `try-finally` with `mat.release()` and `imageProxy.close()`.
-- **Lighting Sensitivity**: Subtraction requires a static background; "Retake" button provided for environment changes.
+- **Blob Stability**: Area filtering (100-5000px) used to filter noise; may require field-tuning.
 
 ---
 
