@@ -149,34 +149,36 @@ Native Android app using computer vision to automate fish counting via smartphon
 - ✅ Task 3.7: Fish tracking (Centroid tracking with unique IDs)
 - ✅ Task 3.8: Display results and testing (Total counter & Line crossing)
 
-**Current Status:** The core pipeline is finished, but detection is being tuned for simulator environments.
+**Current Status:** The core pipeline is finished. Current focus is on refining counting consistency and resolving simulator-specific motion artifacts.
 
 ---
 
 ## Key Implementation Details
 
 ### 1. Centralized Configuration (`ProcessingConfig.kt`)
-All tunable parameters (Thresholds, Blur sizes, Tracking distances) are managed here.
+All tunable parameters (Thresholds, Blur sizes, Tracking distances, Area filters) are managed here.
 
 ### 2. Detection & Tracking Pipeline
 - **Preprocessing**: Gaussian Blur (7x7) on background and frames to reduce noise.
 - **Subtraction**: `absdiff` + thresholding.
-- **Post-processing**: Median Blur (5x5) + Morphological Open to clean the mask.
-- **Tracking**: Centroid-based tracker (`FishTracker.kt`) assigns unique IDs.
-- **Counting**: Detects when a fish ID crosses from one side of the line to the other.
+- **Post-processing**: Median Blur (5x5) + Morphological Open/Close to clean the mask.
+- **Tracking**: Robust tracker (`FishTracker.kt`) uses both **Bounding Box Overlap** and Centroid Distance.
+- **Counting**: Detects when a validated fish track (seen for 3+ frames) crosses the line downward.
 
 ---
 
 ## Known Issues & Solutions (Current Focus)
 
-### 1. Simulator Detection Instability
-**Problem:** Simulator "wobble" causes the entire pipe to turn white (white-out) or blobs to be detected only at edges.
-**Fix Attempts:**
-- Switched to **Binary Mask Visualization** to diagnose pixel-level noise.
-- Added **Gaussian Blur** to suppress background wobble.
-- Added **Median Filter** on the binary mask to remove salt-and-pepper noise.
-- Raised `SUBTRACTION_THRESHOLD` (currently 50.0).
-- Adjusted Morphological operations (removing `CLOSE`, minimizing `DILATE`).
+### 1. Counting Inconsistency
+**Problem:** The system occasionally double-counts or misses fish. Detection is stable for large ovals but can still be fragmented by high-frequency "wobble" noise in the simulator.
+**Current Fixes:**
+- **Box Overlap Matching:** Prioritizes overlapping boxes to keep IDs stable for large objects.
+- **Stability Requirement:** Only counts fish that have been tracked for at least 3 consecutive frames.
+- **Origin Validation:** Requires fish to originate above a "safe zone" before the counting line.
+- **Directional Enforcement:** Only counts top-to-bottom crossings.
+**Next Steps:**
+- Tune `TRACKING_MAX_LOST_FRAMES` to handle temporary disappearances without ID reset.
+- Refine `BLOB_MERGE_MAX_DISTANCE_Y` to prevent nearby fish from merging into a single count.
 
 ---
 

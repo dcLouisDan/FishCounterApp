@@ -2,6 +2,7 @@ package com.example.fishcounterapp.domain.processing
 
 import com.example.fishcounterapp.utils.ProcessingConfig
 import org.opencv.core.Point
+import org.opencv.core.Rect
 import kotlin.math.sqrt
 
 /**
@@ -13,11 +14,6 @@ class FishTracker {
 
     /**
      * Updates the tracker with new detections and detects line crossings.
-     * 
-     * @param newDetections List of blobs detected in the current frame.
-     * @param lineY The vertical position of the counting line in pixels.
-     * @param onFishCrossed Callback triggered when a fish crosses the line.
-     * @return List of tracked blobs seen in this frame.
      */
     fun update(
         newDetections: List<FishBlob>, 
@@ -44,33 +40,55 @@ class FishTracker {
         // 1. Match existing blobs
         for (i in trackedBlobs.indices) {
             val tracked = trackedBlobs[i]
-            var minDistance = Double.MAX_VALUE
             var bestMatchIndex = -1
+            var minDistance = Double.MAX_VALUE
+            var maxOverlap = 0.0
 
             for (j in newDetections.indices) {
                 if (j in usedDetectionIndices) continue
                 
-                val dist = distance(tracked.center, newDetections[j].center)
-                if (dist < minDistance && dist <= ProcessingConfig.TRACKING_MAX_DISTANCE) {
+                val detection = newDetections[j]
+                
+                // Strategy A: Bounding Box Overlap (Best for large objects)
+                val overlap = calculateOverlapArea(tracked.boundingBox, detection.boundingBox)
+                
+                // Strategy B: Centroid Distance (Best for small objects)
+                val dist = distance(tracked.center, detection.center)
+
+                // Prioritize Overlap for large objects, then Distance
+                if (overlap > 0 && overlap > maxOverlap) {
+                    maxOverlap = overlap
+                    bestMatchIndex = j
+                } else if (maxOverlap == 0.0 && dist < minDistance && dist <= ProcessingConfig.TRACKING_MAX_DISTANCE) {
                     minDistance = dist
                     bestMatchIndex = j
                 }
             }
 
             if (bestMatchIndex != -1) {
-                val newCenter = newDetections[bestMatchIndex].center
+                val newDetection = newDetections[bestMatchIndex]
+                val newCenter = newDetection.center
                 val isCurrentlyAbove = newCenter.y < lineY
 
-                // Check for Crossing: Was above, now is on/below
-                if (tracked.wasAboveLine == true && !isCurrentlyAbove) {
+                var fishIsCounted = tracked.isCounted
+                if (!fishIsCounted && 
+                    tracked.consecutiveFramesSeen >= 3 && 
+                    tracked.wasAboveLine == true && 
+                    !isCurrentlyAbove &&
+                    tracked.initialY < (lineY - 20)
+                ) {
                     onFishCrossed()
+                    fishIsCounted = true
                 }
 
                 updatedTrackedBlobs.add(
-                    newDetections[bestMatchIndex].copy(
+                    newDetection.copy(
                         id = tracked.id,
                         framesLost = 0,
-                        wasAboveLine = isCurrentlyAbove
+                        wasAboveLine = isCurrentlyAbove,
+                        isCounted = fishIsCounted,
+                        consecutiveFramesSeen = tracked.consecutiveFramesSeen + 1,
+                        initialY = tracked.initialY
                     )
                 )
                 usedDetectionIndices.add(bestMatchIndex)
@@ -82,19 +100,21 @@ class FishTracker {
             }
         }
 
-        // 2. Register new detections
+        // 2. Register remaining new detections
         for (j in newDetections.indices) {
             if (j !in usedDetectionIndices) {
                 val newCenter = newDetections[j].center
-                val isAbove = newCenter.y < lineY
-                
-                updatedTrackedBlobs.add(
-                    newDetections[j].copy(
-                        id = nextId++, 
-                        framesLost = 0,
-                        wasAboveLine = isAbove
+                if (newCenter.y < (lineY - 10)) {
+                    updatedTrackedBlobs.add(
+                        newDetections[j].copy(
+                            id = nextId++, 
+                            framesLost = 0,
+                            wasAboveLine = true,
+                            consecutiveFramesSeen = 1,
+                            initialY = newCenter.y
+                        )
                     )
-                )
+                }
             }
         }
 
@@ -103,20 +123,29 @@ class FishTracker {
     }
 
     private fun registerBlob(detection: FishBlob, lineY: Int) {
-        val isAbove = detection.center.y < lineY
-        trackedBlobs.add(
-            detection.copy(
-                id = nextId++, 
-                framesLost = 0,
-                wasAboveLine = isAbove
+        if (detection.center.y < (lineY - 10)) {
+            trackedBlobs.add(
+                detection.copy(
+                    id = nextId++, 
+                    framesLost = 0,
+                    wasAboveLine = true,
+                    consecutiveFramesSeen = 1,
+                    initialY = detection.center.y
+                )
             )
-        )
+        }
     }
 
     private fun distance(p1: Point, p2: Point): Double {
         val dx = p1.x - p2.x
         val dy = p1.y - p2.y
         return sqrt(dx * dx + dy * dy)
+    }
+
+    private fun calculateOverlapArea(r1: Rect, r2: Rect): Double {
+        val xOverlap = Math.max(0, Math.min(r1.x + r1.width, r2.x + r2.width) - Math.max(r1.x, r2.x))
+        val yOverlap = Math.max(0, Math.min(r1.y + r1.height, r2.y + r2.height) - Math.max(r1.y, r2.y))
+        return (xOverlap * yOverlap).toDouble()
     }
 
     fun reset() {
