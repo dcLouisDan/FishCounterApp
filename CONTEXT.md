@@ -1,7 +1,7 @@
 # Fish Counter Mobile App - Project Documentation
 
 **Last Updated:** October 26, 2024  
-**Current Status:** Phase 3 In Progress (Tasks 3.1 - 3.5 Complete)  
+**Current Status:** Phase 3 Complete (Core Logic) - Refinement In Progress  
 **Developer:** Dan (BS IT, Junior Software Developer, Pampanga, Philippines)
 
 ---
@@ -91,6 +91,7 @@ Native Android app using computer vision to automate fish counting via smartphon
 │  Domain Processing:                                 │
 │  - ImageProcessor.kt (OpenCV operations)            │
 │  - FishBlob.kt (Data model for detected fish)       │
+│  - FishTracker.kt (Identity tracking logic)         │
 │                                                      │
 │  Utilities:                                         │
 │  - ImageConverter.kt (format conversions & stats)   │
@@ -137,84 +138,45 @@ Native Android app using computer vision to automate fish counting via smartphon
 
 ---
 
-### Phase 3: Fish Detection 🔄 IN PROGRESS
+### Phase 3: Fish Detection ✅ CORE COMPLETE / 🔄 REFINEMENT
 
 - ✅ Task 3.1: Capture background reference
 - ✅ Task 3.2: Background subtraction
 - ✅ Task 3.3: Binary thresholding (Parameterized)
 - ✅ Task 3.4: Morphological operations (Parameterized)
 - ✅ Task 3.5: Blob detection (Find contours)
-- ⏳ Task 3.6: Define counting line
-- ⏳ Task 3.7: Fish tracking (assign IDs, track movement)
-- ⏳ Task 3.8: Display results and testing
+- ✅ Task 3.6: Define counting line
+- ✅ Task 3.7: Fish tracking (Centroid tracking with unique IDs)
+- ✅ Task 3.8: Display results and testing (Total counter & Line crossing)
 
-**Current Performance:** 18-22 FPS (with subtraction & detection active).
-
----
-
-## Code Structure
-
-### File Organization (Current)
-
-```text
-app/src/main/java/com/example/fishcounterapp/
-│
-├── FishCounterApplication.kt            # Application class (OpenCV init)
-├── AppContainer.kt                      # Dependency injection container
-│
-├── camera/
-│   ├── data/
-│   │   └── CameraRepository.kt          # CameraX setup (ResolutionSelector)
-│   ├── ui/
-│   │   ├── CameraScreen.kt              # UI Entry point & Status Indicators
-│   │   ├── CameraControls.kt            # New buttons for BG capture & Subtraction
-│   │   └── ProcessedImageView.kt        # Display component
-│   └── viewmodel/
-│       └── CameraViewModel.kt           # Business logic & Pipeline orchestration
-│
-├── domain/
-│   └── processing/
-│       ├── ImageProcessor.kt            # OpenCV operations (BG Subtraction, Detection)
-│       └── FishBlob.kt                  # Fish data model
-│
-└── utils/
-    ├── ImageConverter.kt                # Optimized YUV→Mat & Stats tracking
-    ├── ProcessingConfig.kt              # Central configuration constants
-    └── ViewModelUtils.kt                # Factory helpers
-```
+**Current Status:** The core pipeline is finished, but detection is being tuned for simulator environments.
 
 ---
 
 ## Key Implementation Details
 
 ### 1. Centralized Configuration (`ProcessingConfig.kt`)
-All tunable parameters (Resolution, Thresholds, Area filters, Kernel sizes) are managed here, ensuring consistency across the app.
+All tunable parameters (Thresholds, Blur sizes, Tracking distances) are managed here.
 
-### 2. High-Performance Conversion (`ImageConverter.kt`)
-- **Direct YUV → Mat**: Bypasses Bitmaps to save ~15-20ms per frame.
-
-### 3. Fish Detection Pipeline (`ImageProcessor.kt`)
-- **Background Subtraction**: `absdiff` between live feed and reference.
-- **Masking**: Binary thresholding and morphological `OPEN` operation.
-- **Contour Analysis**: `findContours` + area filtering + centroid calculation.
-- **Visual Feedback**: Real-time green bounding boxes and centroids drawn on the UI.
+### 2. Detection & Tracking Pipeline
+- **Preprocessing**: Gaussian Blur (7x7) on background and frames to reduce noise.
+- **Subtraction**: `absdiff` + thresholding.
+- **Post-processing**: Median Blur (5x5) + Morphological Open to clean the mask.
+- **Tracking**: Centroid-based tracker (`FishTracker.kt`) assigns unique IDs.
+- **Counting**: Detects when a fish ID crosses from one side of the line to the other.
 
 ---
 
-## Phase 3 Roadmap (Planned Implementation)
+## Known Issues & Solutions (Current Focus)
 
-*Reference for upcoming tasks:*
-
-1. **Counting Line**: Defining a virtual crossing point in the frame.
-2. **Tracking**: Assigning IDs and tracking centroids across consecutive frames.
-3. **Counter Logic**: Incrementing total count when a fish crosses the line.
-
----
-
-## Known Issues & Solutions
-
-- **Memory Management**: Strictly using `try-finally` with `mat.release()` and `imageProxy.close()`.
-- **Blob Stability**: Area filtering (100-5000px) used to filter noise; may require field-tuning.
+### 1. Simulator Detection Instability
+**Problem:** Simulator "wobble" causes the entire pipe to turn white (white-out) or blobs to be detected only at edges.
+**Fix Attempts:**
+- Switched to **Binary Mask Visualization** to diagnose pixel-level noise.
+- Added **Gaussian Blur** to suppress background wobble.
+- Added **Median Filter** on the binary mask to remove salt-and-pepper noise.
+- Raised `SUBTRACTION_THRESHOLD` (currently 50.0).
+- Adjusted Morphological operations (removing `CLOSE`, minimizing `DILATE`).
 
 ---
 

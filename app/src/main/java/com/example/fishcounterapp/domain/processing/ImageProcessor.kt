@@ -31,9 +31,16 @@ class ImageProcessor {
      */
     fun setBackground(mat: Mat) {
         backgroundMat?.release()
-        backgroundMat = mat.clone()
+        
+        // Apply Gaussian Blur to the background reference once to stabilize it
+        val blurredBg = Mat()
+        val blurSize = ProcessingConfig.GAUSSIAN_BLUR_SIZE
+        Imgproc.GaussianBlur(mat, blurredBg, Size(blurSize, blurSize), 0.0)
+        
+        backgroundMat = blurredBg
+        
         if (ProcessingConfig.ENABLE_VERBOSE_LOGGING) {
-            Log.d(TAG, "Background reference captured. Size: ${mat.cols()}x${mat.rows()}")
+            Log.d(TAG, "Background reference captured and blurred. Size: ${mat.cols()}x${mat.rows()}")
         }
     }
 
@@ -68,14 +75,19 @@ class ImageProcessor {
         if (bg.empty()) return null
 
         val grayFrame = convertToGrayscale(currentFrame)
+        val blurredFrame = Mat()
         val diffMat = Mat()
         val maskMat = Mat()
 
         try {
-            // 1. Absolute difference
-            Core.absdiff(bg, grayFrame, diffMat)
+            // 1. Pre-process current frame: Blur to reduce high-frequency noise (wobble)
+            val blurSize = ProcessingConfig.GAUSSIAN_BLUR_SIZE
+            Imgproc.GaussianBlur(grayFrame, blurredFrame, Size(blurSize, blurSize), 0.0)
 
-            // 2. Thresholding to create binary mask
+            // 2. Absolute difference against the pre-blurred background
+            Core.absdiff(bg, blurredFrame, diffMat)
+
+            // 3. Thresholding to create binary mask
             Imgproc.threshold(
                 diffMat, 
                 maskMat, 
@@ -84,15 +96,25 @@ class ImageProcessor {
                 Imgproc.THRESH_BINARY
             )
 
-            // 3. Noise reduction using configured kernel size
+            // 4. Median Blur on the mask to remove "salt and pepper" noise
+            // This is very effective for simulated wobbling noise.
+            Imgproc.medianBlur(maskMat, maskMat, ProcessingConfig.MEDIAN_BLUR_SIZE)
+
+            // 5. Morphological enhancement
             val kernelSize = ProcessingConfig.MORPH_KERNEL_SIZE
             val kernel = Imgproc.getStructuringElement(
                 Imgproc.MORPH_RECT, 
                 Size(kernelSize, kernelSize)
             )
             
-            // MORPH_OPEN = Erosion then Dilation (removes small white noise)
-            Imgproc.morphologyEx(maskMat, maskMat, Imgproc.MORPH_OPEN, kernel)
+            // OPEN to remove any remaining tiny noise
+            Imgproc.morphologyEx(maskMat, maskMat, Imgproc.MORPH_OPEN, kernel, Point(-1.0, -1.0), ProcessingConfig.MORPH_OPEN_ITERATIONS)
+            
+            // DILATE slightly to merge parts of the same fish without white-out
+            if (ProcessingConfig.MORPH_DILATE_ITERATIONS > 0) {
+                Imgproc.dilate(maskMat, maskMat, kernel, Point(-1.0, -1.0), ProcessingConfig.MORPH_DILATE_ITERATIONS)
+            }
+            
             kernel.release()
 
             return maskMat
@@ -102,6 +124,7 @@ class ImageProcessor {
             return null
         } finally {
             grayFrame.release()
+            blurredFrame.release()
             diffMat.release()
         }
     }
@@ -130,18 +153,21 @@ class ImageProcessor {
                 // Filter by area to exclude noise and large artifacts
                 if (area >= ProcessingConfig.MIN_FISH_AREA && area <= ProcessingConfig.MAX_FISH_AREA) {
                     val moments = Imgproc.moments(contour)
-                    val centerX = moments._m10 / moments._m00
-                    val centerY = moments._m01 / moments._m00
-                    
-                    val rect = Imgproc.boundingRect(contour)
-                    
-                    fishBlobs.add(
-                        FishBlob(
-                            center = Point(centerX, centerY),
-                            boundingBox = rect,
-                            area = area
+                    // Ensure area is not zero to avoid division by zero
+                    if (moments._m00 != 0.0) {
+                        val centerX = moments._m10 / moments._m00
+                        val centerY = moments._m01 / moments._m00
+                        
+                        val rect = Imgproc.boundingRect(contour)
+                        
+                        fishBlobs.add(
+                            FishBlob(
+                                center = Point(centerX, centerY),
+                                boundingBox = rect,
+                                area = area
+                            )
                         )
-                    )
+                    }
                 }
                 contour.release() // Release each contour mat
             }
@@ -155,7 +181,7 @@ class ImageProcessor {
     }
 
     /**
-     * Draws detection overlays (bounding boxes and centers) on the frame.
+     * Draws detection overlays (bounding boxes, centers, and IDs) on the frame.
      */
     fun drawDetections(frame: Mat, blobs: List<FishBlob>) {
         val color = Scalar(0.0, 255.0, 0.0) // Green
@@ -167,7 +193,43 @@ class ImageProcessor {
             
             // Draw center point
             Imgproc.circle(frame, blob.center, 4, color, -1)
+
+            // Draw ID if available
+            if (blob.id != -1) {
+                Imgproc.putText(
+                    frame,
+                    "ID: ${blob.id}",
+                    Point(blob.boundingBox.x.toDouble(), (blob.boundingBox.y - 10).toDouble()),
+                    Imgproc.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    color,
+                    1
+                )
+            }
         }
+    }
+
+    /**
+     * Draws the counting line on the frame.
+     */
+    fun drawCountingLine(frame: Mat) {
+        val lineY = (frame.rows() * ProcessingConfig.COUNTING_LINE_Y_PERCENT).toInt()
+        val startPoint = Point(0.0, lineY.toDouble())
+        val endPoint = Point(frame.cols().toDouble(), lineY.toDouble())
+        
+        // Draw a blue line
+        Imgproc.line(frame, startPoint, endPoint, Scalar(255.0, 0.0, 0.0), 2)
+        
+        // Add text label
+        Imgproc.putText(
+            frame, 
+            "Counting Line", 
+            Point(10.0, (lineY - 10).toDouble()), 
+            Imgproc.FONT_HERSHEY_SIMPLEX, 
+            0.5, 
+            Scalar(255.0, 0.0, 0.0), 
+            1
+        )
     }
 
     fun bitmapToMap(bitmap: Bitmap): Mat? {

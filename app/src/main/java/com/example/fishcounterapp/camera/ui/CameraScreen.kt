@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,8 +22,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.fishcounterapp.camera.data.CameraRepository
 import com.example.fishcounterapp.camera.viewmodel.CameraViewModel
 import com.example.fishcounterapp.utils.cameraViewModel
@@ -60,7 +64,61 @@ fun CameraScreen(
                 currentFps = uiState.currentFps
             )
 
-            // Status Indicators
+            // Top Info Bar
+            if (uiState.isCameraRunning) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Total Count Badge
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "TOTAL FISH",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "${uiState.totalFishCount}",
+                                style = MaterialTheme.typography.headlineMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 32.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+
+                    // Current Seen Count
+                    if (uiState.isSubtractionEnabled) {
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f),
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "Currently in view: ${uiState.detectedFishCount}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Status Indicators (Top Right)
             Column(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -72,15 +130,15 @@ fun CameraScreen(
                     Box(
                         modifier = Modifier
                             .background(
-                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f),
+                                color = Color(0xFF4CAF50).copy(alpha = 0.8f), // Green status
                                 shape = RoundedCornerShape(8.dp)
                             )
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Text(
-                            text = "Background Ready",
+                            text = "BG READY",
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                            color = Color.White
                         )
                     }
                 }
@@ -95,7 +153,7 @@ fun CameraScreen(
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Text(
-                            text = "Subtraction Active",
+                            text = "COUNTING ACTIVE",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onTertiaryContainer
                         )
@@ -139,6 +197,9 @@ fun CameraScreen(
                 isSubtractionEnabled = uiState.isSubtractionEnabled,
                 onToggleSubtraction = {
                     cameraViewModel.toggleSubtraction()
+                },
+                onResetCount = {
+                    cameraViewModel.resetCount()
                 }
             )
         } else {
@@ -160,7 +221,8 @@ fun CameraScreen(
                     onCaptureBackground = {},
                     onClearBackground = {},
                     isSubtractionEnabled = false,
-                    onToggleSubtraction = {}
+                    onToggleSubtraction = {},
+                    onResetCount = {}
                 )
             }
         }

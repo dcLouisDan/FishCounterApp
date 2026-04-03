@@ -27,7 +27,8 @@ fun CameraControls(
     onCaptureBackground: () -> Unit,
     onClearBackground: () -> Unit,
     isSubtractionEnabled: Boolean,
-    onToggleSubtraction: () -> Unit
+    onToggleSubtraction: () -> Unit,
+    onResetCount: () -> Unit
 ) {
     Column(
         modifier = modifier.padding(16.dp),
@@ -55,7 +56,7 @@ fun CameraControls(
                 OutlinedButton(
                     onClick = onToggleGrayscale,
                     modifier = Modifier.weight(1f),
-                    enabled = !isSubtractionEnabled // Disable grayscale toggle if subtraction is on (since it's already mask)
+                    enabled = !isSubtractionEnabled
                 ) {
                     Text(if (isGrayscaleEnabled) "Show Color" else "Show Grayscale")
                 }
@@ -99,6 +100,18 @@ fun CameraControls(
                     ) {
                         Text("Clear BG")
                     }
+                }
+            }
+
+            if (isSubtractionEnabled) {
+                OutlinedButton(
+                    onClick = onResetCount,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Reset Total Count")
                 }
             }
         }

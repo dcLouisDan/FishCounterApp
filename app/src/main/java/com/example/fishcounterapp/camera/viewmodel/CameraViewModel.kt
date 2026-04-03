@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.fishcounterapp.camera.data.CameraRepository
 import com.example.fishcounterapp.domain.processing.FishBlob
+import com.example.fishcounterapp.domain.processing.FishTracker
 import com.example.fishcounterapp.domain.processing.ImageProcessor
 import com.example.fishcounterapp.utils.ImageConverter
 import com.example.fishcounterapp.utils.ProcessingConfig
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.opencv.core.Mat
+import org.opencv.imgproc.Imgproc
 
 /**
  * UI State for the Camera screen.
@@ -33,7 +35,8 @@ data class CameraUiState(
     val isBackgroundCaptured: Boolean = false,
     val isCapturingBackground: Boolean = false,
     val isSubtractionEnabled: Boolean = false,
-    val detectedFishCount: Int = 0
+    val detectedFishCount: Int = 0,
+    val totalFishCount: Int = 0
 )
 
 /**
@@ -55,6 +58,8 @@ class CameraViewModel(
         )
     )
     val uiState: StateFlow<CameraUiState> = _uiState.asStateFlow()
+
+    private val fishTracker = FishTracker()
 
     init {
         if (!isOpenCvInitialized) {
@@ -96,39 +101,47 @@ class CameraViewModel(
 
     fun clearBackground() {
         imageProcessor?.clearBackground()
+        fishTracker.reset()
         _uiState.update { 
             it.copy(
                 isBackgroundCaptured = false,
                 isSubtractionEnabled = false,
-                detectedFishCount = 0
+                detectedFishCount = 0,
+                totalFishCount = 0
             ) 
         }
     }
 
     fun toggleSubtraction() {
         if (_uiState.value.isBackgroundCaptured) {
-            _uiState.update { it.copy(isSubtractionEnabled = !it.isSubtractionEnabled) }
+            _uiState.update { 
+                val newState = !it.isSubtractionEnabled
+                if (!newState) fishTracker.reset()
+                it.copy(isSubtractionEnabled = newState) 
+            }
         }
+    }
+
+    fun resetCount() {
+        _uiState.update { it.copy(totalFishCount = 0) }
+        fishTracker.reset()
     }
 
     // --- Frame Processing ---
 
     fun onFrameReceived(imageProxy: ImageProxy) {
         viewModelScope.launch(Dispatchers.Default) {
-            val startTime = System.currentTimeMillis()
             var colorMat: Mat? = null
             var grayMat: Mat? = null
             var processedBitmap: Bitmap? = null
-            var fishCount = 0
+            var currentSeenCount = 0
             
             try {
                 if (imageProcessor == null) return@launch
 
-                // 1. Convert ImageProxy to Mat
                 colorMat = ImageConverter.imageProxyToMatDirect(imageProxy)
                 if (colorMat == null) return@launch
 
-                // 2. Handle Background Capture if requested
                 if (_uiState.value.isCapturingBackground) {
                     grayMat = imageProcessor.convertToGrayscale(colorMat)
                     imageProcessor.setBackground(grayMat)
@@ -143,24 +156,39 @@ class CameraViewModel(
                     }
                 }
 
-                // 3. Process the Mat for display and detection
                 val currentState = _uiState.value
+                val rows = colorMat.rows()
+                val lineY = (rows * ProcessingConfig.COUNTING_LINE_Y_PERCENT).toInt()
                 
                 if (currentState.isSubtractionEnabled) {
-                    // Perform Background Subtraction
                     val maskMat = imageProcessor.subtractBackground(colorMat)
                     if (maskMat != null) {
-                        // Detect Fish Blobs
-                        val blobs = imageProcessor.detectFish(maskMat)
-                        fishCount = blobs.size
+                        // 1. Detect
+                        val detections = imageProcessor.detectFish(maskMat)
                         
-                        // Draw Detections on color frame for feedback
-                        imageProcessor.drawDetections(colorMat, blobs)
+                        // 2. Track & Count Crossings
+                        val trackedBlobs = fishTracker.update(
+                            newDetections = detections,
+                            lineY = lineY,
+                            onFishCrossed = {
+                                viewModelScope.launch(Dispatchers.Main) {
+                                    _uiState.update { it.copy(totalFishCount = it.totalFishCount + 1) }
+                                }
+                            }
+                        )
+                        currentSeenCount = trackedBlobs.size
                         
-                        // Decide what to display: Mask or Color with Detections?
-                        // For now, let's show color with detections to verify it works
-                        processedBitmap = imageProcessor.matToBitmap(colorMat)
+                        // 3. Visualization: Show the MASK instead of the raw image
+                        // Convert mask to BGR so we can draw colorful overlays on it
+                        val visualMat = Mat()
+                        Imgproc.cvtColor(maskMat, visualMat, Imgproc.COLOR_GRAY2BGR)
                         
+                        imageProcessor.drawCountingLine(visualMat)
+                        imageProcessor.drawDetections(visualMat, trackedBlobs)
+                        
+                        processedBitmap = imageProcessor.matToBitmap(visualMat)
+                        
+                        visualMat.release()
                         maskMat.release()
                     }
                 } else if (currentState.isGrayscaleEnabled) {
@@ -171,12 +199,11 @@ class CameraViewModel(
                     processedBitmap = imageProcessor.matToBitmap(colorMat)
                 }
 
-                // 4. Update UI
                 withContext(Dispatchers.Main) {
                     _uiState.update {
                         it.copy(
                             processedBitmap = processedBitmap,
-                            detectedFishCount = fishCount
+                            detectedFishCount = currentSeenCount
                         )
                     }
                 }
@@ -186,7 +213,6 @@ class CameraViewModel(
             } catch (e: Exception) {
                 Log.e(TAG, "Error converting frame", e)
             } finally {
-                // 5. Resource Cleanup
                 colorMat?.release()
                 grayMat?.release()
                 imageProxy.close()
