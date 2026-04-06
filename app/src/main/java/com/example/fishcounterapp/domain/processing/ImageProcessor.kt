@@ -32,14 +32,17 @@ class ImageProcessor {
     fun setBackground(mat: Mat) {
         backgroundMat?.release()
         
-        val blurredBg = Mat()
         val blurSize = ProcessingConfig.GAUSSIAN_BLUR_SIZE
-        Imgproc.GaussianBlur(mat, blurredBg, Size(blurSize, blurSize), 0.0)
-        
-        backgroundMat = blurredBg
+        if (blurSize > 0) {
+            val blurredBg = Mat()
+            Imgproc.GaussianBlur(mat, blurredBg, Size(blurSize, blurSize), 0.0)
+            backgroundMat = blurredBg
+        } else {
+            backgroundMat = mat.clone()
+        }
         
         if (ProcessingConfig.ENABLE_VERBOSE_LOGGING) {
-            Log.d(TAG, "Background reference captured and blurred. Size: ${mat.cols()}x${mat.rows()}")
+            Log.d(TAG, "Background reference captured. Blur: $blurSize")
         }
     }
 
@@ -63,17 +66,22 @@ class ImageProcessor {
         if (bg.empty()) return null
 
         val grayFrame = convertToGrayscale(currentFrame)
-        val blurredFrame = Mat()
         val diffMat = Mat()
         val maskMat = Mat()
 
         try {
-            // 1. Pre-process: Blur
+            // 1. Pre-process: Blur (Only if size > 0)
             val blurSize = ProcessingConfig.GAUSSIAN_BLUR_SIZE
-            Imgproc.GaussianBlur(grayFrame, blurredFrame, Size(blurSize, blurSize), 0.0)
+            val frameToSubtract = if (blurSize > 0) {
+                val blurred = Mat()
+                Imgproc.GaussianBlur(grayFrame, blurred, Size(blurSize, blurSize), 0.0)
+                blurred
+            } else {
+                grayFrame
+            }
 
             // 2. Diff
-            Core.absdiff(bg, blurredFrame, diffMat)
+            Core.absdiff(bg, frameToSubtract, diffMat)
 
             // 3. Threshold
             Imgproc.threshold(
@@ -84,33 +92,50 @@ class ImageProcessor {
                 Imgproc.THRESH_BINARY
             )
 
-            // 4. Median Blur
-            Imgproc.medianBlur(maskMat, maskMat, ProcessingConfig.MEDIAN_BLUR_SIZE)
+            // Cleanup intermediate blurred frame if created
+            if (frameToSubtract !== grayFrame) {
+                frameToSubtract.release()
+            }
 
-            // 5. Morphological enhancement
-            val kernelOpen = Imgproc.getStructuringElement(
+            // 4. Region of Interest (ROI) - Black out the edges
+            applyROIMask(maskMat)
+
+            // 5. Median Blur
+            if (ProcessingConfig.MEDIAN_BLUR_SIZE > 0) {
+                Imgproc.medianBlur(maskMat, maskMat, ProcessingConfig.MEDIAN_BLUR_SIZE)
+            }
+
+            // 6. Morphological enhancement
+            val kernel = Imgproc.getStructuringElement(
                 Imgproc.MORPH_RECT, 
                 Size(ProcessingConfig.MORPH_KERNEL_SIZE, ProcessingConfig.MORPH_KERNEL_SIZE)
             )
-            // Vertically biased kernel for closing
-            val kernelClose = Imgproc.getStructuringElement(
-                Imgproc.MORPH_RECT, 
-                Size(ProcessingConfig.MORPH_CLOSE_WIDTH, ProcessingConfig.MORPH_CLOSE_HEIGHT)
-            )
             
             // OPEN to remove tiny noise
-            Imgproc.morphologyEx(maskMat, maskMat, Imgproc.MORPH_OPEN, kernelOpen, Point(-1.0, -1.0), ProcessingConfig.MORPH_OPEN_ITERATIONS)
-            
-            // CLOSE to fill hollow centers and bridge vertical gaps
-            Imgproc.morphologyEx(maskMat, maskMat, Imgproc.MORPH_CLOSE, kernelClose, Point(-1.0, -1.0), ProcessingConfig.MORPH_CLOSE_ITERATIONS)
-            
-            // DILATE slightly
-            if (ProcessingConfig.MORPH_DILATE_ITERATIONS > 0) {
-                Imgproc.dilate(maskMat, maskMat, kernelOpen, Point(-1.0, -1.0), ProcessingConfig.MORPH_DILATE_ITERATIONS)
+            if (ProcessingConfig.MORPH_OPEN_ITERATIONS > 0) {
+                Imgproc.morphologyEx(maskMat, maskMat, Imgproc.MORPH_OPEN, kernel, Point(-1.0, -1.0), ProcessingConfig.MORPH_OPEN_ITERATIONS)
+            }
+
+            // ERODE to physically shrink blobs and break thin bridges
+            if (ProcessingConfig.MORPH_ERODE_ITERATIONS > 0) {
+                Imgproc.erode(maskMat, maskMat, kernel, Point(-1.0, -1.0), ProcessingConfig.MORPH_ERODE_ITERATIONS)
             }
             
-            kernelOpen.release()
-            kernelClose.release()
+            // CLOSE to fill tiny holes (only if enabled)
+            if (ProcessingConfig.MORPH_CLOSE_ITERATIONS > 0) {
+                val kernelClose = Imgproc.getStructuringElement(
+                    Imgproc.MORPH_RECT, 
+                    Size(ProcessingConfig.MORPH_CLOSE_WIDTH, ProcessingConfig.MORPH_CLOSE_HEIGHT)
+                )
+                Imgproc.morphologyEx(maskMat, maskMat, Imgproc.MORPH_CLOSE, kernelClose, Point(-1.0, -1.0), ProcessingConfig.MORPH_CLOSE_ITERATIONS)
+                kernelClose.release()
+            }
+            
+            if (ProcessingConfig.MORPH_DILATE_ITERATIONS > 0) {
+                Imgproc.dilate(maskMat, maskMat, kernel, Point(-1.0, -1.0), ProcessingConfig.MORPH_DILATE_ITERATIONS)
+            }
+            
+            kernel.release()
 
             return maskMat
         } catch (e: Exception) {
@@ -119,13 +144,37 @@ class ImageProcessor {
             return null
         } finally {
             grayFrame.release()
-            blurredFrame.release()
             diffMat.release()
         }
     }
 
     /**
-     * Detects fish blobs in the provided binary mask with bounding box merging.
+     * Blacks out the left and right edges of the mask based on configuration.
+     */
+    private fun applyROIMask(mask: Mat) {
+        val width = mask.cols()
+        val height = mask.rows()
+        
+        val leftEdge = (width * ProcessingConfig.ROI_LEFT_PERCENT).toInt()
+        val rightEdge = (width * (1.0 - ProcessingConfig.ROI_RIGHT_PERCENT)).toInt()
+        
+        // Black out left area
+        if (leftEdge > 0) {
+            val leftRoi = mask.submat(Rect(0, 0, leftEdge, height))
+            leftRoi.setTo(Scalar(0.0))
+            leftRoi.release()
+        }
+        
+        // Black out right area
+        if (rightEdge < width) {
+            val rightRoi = mask.submat(Rect(rightEdge, 0, width - rightEdge, height))
+            rightRoi.setTo(Scalar(0.0))
+            rightRoi.release()
+        }
+    }
+
+    /**
+     * Detects fish blobs in the provided binary mask.
      */
     fun detectFish(mask: Mat): List<FishBlob> {
         val contours = mutableListOf<MatOfPoint>()
@@ -167,15 +216,11 @@ class ImageProcessor {
             hierarchy.release()
         }
 
-        // Merge blobs that are vertically close
         return mergeBlobs(tempBlobs)
     }
 
-    /**
-     * Merges bounding boxes that are likely part of the same fish.
-     */
     private fun mergeBlobs(blobs: List<FishBlob>): List<FishBlob> {
-        if (blobs.size < 2) return blobs
+        if (blobs.size < 2 || ProcessingConfig.BLOB_MERGE_MAX_DISTANCE_Y <= 0) return blobs
 
         val merged = mutableListOf<FishBlob>()
         val used = BooleanArray(blobs.size)
@@ -210,14 +255,12 @@ class ImageProcessor {
         val rect1 = b1.boundingBox
         val rect2 = b2.boundingBox
 
-        // Calculate vertical distance between rectangles
         val verticalDist = if (rect1.y < rect2.y) {
             rect2.y - (rect1.y + rect1.height)
         } else {
             rect1.y - (rect2.y + rect2.height)
         }
 
-        // Calculate horizontal overlap
         val overlapX = Math.min(rect1.x + rect1.width, rect2.x + rect2.width) - Math.max(rect1.x, rect2.x)
 
         return verticalDist <= ProcessingConfig.BLOB_MERGE_MAX_DISTANCE_Y && 
@@ -236,7 +279,6 @@ class ImageProcessor {
         val mergedRect = Rect(x, y, width, height)
         val mergedArea = b1.area + b2.area
         
-        // New center is the average weighted by area or just midpoint of bounding box
         val centerX = x + width / 2.0
         val centerY = y + height / 2.0
 
@@ -247,9 +289,6 @@ class ImageProcessor {
         )
     }
 
-    /**
-     * Draws detection overlays.
-     */
     fun drawDetections(frame: Mat, blobs: List<FishBlob>) {
         val color = Scalar(0.0, 255.0, 0.0) // Green
         val thickness = 2

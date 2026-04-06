@@ -48,14 +48,9 @@ class FishTracker {
                 if (j in usedDetectionIndices) continue
                 
                 val detection = newDetections[j]
-                
-                // Strategy A: Bounding Box Overlap (Best for large objects)
                 val overlap = calculateOverlapArea(tracked.boundingBox, detection.boundingBox)
-                
-                // Strategy B: Centroid Distance (Best for small objects)
                 val dist = distance(tracked.center, detection.center)
 
-                // Prioritize Overlap for large objects, then Distance
                 if (overlap > 0 && overlap > maxOverlap) {
                     maxOverlap = overlap
                     bestMatchIndex = j
@@ -68,17 +63,28 @@ class FishTracker {
             if (bestMatchIndex != -1) {
                 val newDetection = newDetections[bestMatchIndex]
                 val newCenter = newDetection.center
+                
+                // --- Robust State-Based Counting ---
                 val isCurrentlyAbove = newCenter.y < lineY
-
+                val isPastBand = newCenter.y > (lineY + ProcessingConfig.COUNTING_BAND_HEIGHT)
+                
                 var fishIsCounted = tracked.isCounted
-                if (!fishIsCounted && 
-                    tracked.consecutiveFramesSeen >= 3 && 
-                    tracked.wasAboveLine == true && 
-                    !isCurrentlyAbove &&
-                    tracked.initialY < (lineY - 20)
-                ) {
-                    onFishCrossed()
-                    fishIsCounted = true
+                var fishCanBeCounted = tracked.canBeCounted
+
+                // If not eligible yet, check if it's well above the line
+                if (!fishIsCounted && !fishCanBeCounted) {
+                    if (newCenter.y < (lineY - 10)) {
+                        fishCanBeCounted = true
+                    }
+                }
+
+                // If eligible and has crossed the band, count it
+                if (fishCanBeCounted && !fishIsCounted && isPastBand) {
+                    if (tracked.consecutiveFramesSeen >= ProcessingConfig.TRACKING_MIN_STABILITY_FRAMES) {
+                        onFishCrossed()
+                        fishIsCounted = true
+                        fishCanBeCounted = false // Reset eligibility after counting
+                    }
                 }
 
                 updatedTrackedBlobs.add(
@@ -87,6 +93,7 @@ class FishTracker {
                         framesLost = 0,
                         wasAboveLine = isCurrentlyAbove,
                         isCounted = fishIsCounted,
+                        canBeCounted = fishCanBeCounted,
                         consecutiveFramesSeen = tracked.consecutiveFramesSeen + 1,
                         initialY = tracked.initialY
                     )
@@ -104,12 +111,15 @@ class FishTracker {
         for (j in newDetections.indices) {
             if (j !in usedDetectionIndices) {
                 val newCenter = newDetections[j].center
-                if (newCenter.y < (lineY - 10)) {
+                // Only track fish that appear near or above the line, ignore those spawning way below
+                if (newCenter.y < (lineY + ProcessingConfig.COUNTING_BAND_HEIGHT)) {
+                    val isAbove = newCenter.y < lineY
                     updatedTrackedBlobs.add(
                         newDetections[j].copy(
                             id = nextId++, 
                             framesLost = 0,
-                            wasAboveLine = true,
+                            wasAboveLine = isAbove,
+                            canBeCounted = isAbove, // Eligible if starts above
                             consecutiveFramesSeen = 1,
                             initialY = newCenter.y
                         )
@@ -123,17 +133,17 @@ class FishTracker {
     }
 
     private fun registerBlob(detection: FishBlob, lineY: Int) {
-        if (detection.center.y < (lineY - 10)) {
-            trackedBlobs.add(
-                detection.copy(
-                    id = nextId++, 
-                    framesLost = 0,
-                    wasAboveLine = true,
-                    consecutiveFramesSeen = 1,
-                    initialY = detection.center.y
-                )
+        val isAbove = detection.center.y < lineY
+        trackedBlobs.add(
+            detection.copy(
+                id = nextId++, 
+                framesLost = 0,
+                wasAboveLine = isAbove,
+                canBeCounted = isAbove,
+                consecutiveFramesSeen = 1,
+                initialY = detection.center.y
             )
-        }
+        )
     }
 
     private fun distance(p1: Point, p2: Point): Double {
