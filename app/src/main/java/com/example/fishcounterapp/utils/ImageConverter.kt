@@ -11,7 +11,6 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.imgproc.Imgproc
 import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
 
 /**
  * Utility class for converting between different image formats used in the app.
@@ -85,44 +84,13 @@ object ImageConverter {
             val uPlane = imageProxy.planes[1]
             val vPlane = imageProxy.planes[2]
 
-            val yBuffer = yPlane.buffer
-            val uBuffer = uPlane.buffer
-            val vBuffer = vPlane.buffer
-
-            val ySize = yBuffer.remaining()
-            val uSize = uBuffer.remaining()
-            val vSize = vBuffer.remaining()
-
-            // 2. Prepare a single byte array for the NV21 format
-            // NV21 consists of the full Y plane, followed by interleaved V and U
-            val nv21 = ByteArray(ySize + (width * height / 2))
-
-            // Copy Y plane
-            yBuffer.get(nv21, 0, ySize)
-
-            // 3. Manually interleave V and U if they aren't already
-            // In NV21, the layout is V, U, V, U...
-            val vPixelStride = vPlane.pixelStride
-            val uPixelStride = uPlane.pixelStride
-
-            // This is where most "purple/green" issues happen.
-            // We fill the remaining part of the nv21 array starting at ySize
-            if (vPixelStride == 2 && uPixelStride == 2 && vBuffer.remaining() == uBuffer.remaining()) {
-                // This is the common case for many Android devices (already interleaved)
-                // We just need to take the V buffer which usually contains the U data in the next byte
-                vBuffer.get(nv21, ySize, vSize)
-            } else {
-                // Fallback: Manually interleave if the strides are different
-                var pos = ySize
-                for (row in 0 until height / 2) {
-                    for (col in 0 until width / 2) {
-                        val vIdx = row * vPlane.rowStride + col * vPixelStride
-                        val uIdx = row * uPlane.rowStride + col * uPixelStride
-                        nv21[pos++] = vBuffer.get(vIdx)
-                        nv21[pos++] = uBuffer.get(uIdx)
-                    }
-                }
-            }
+            val nv21 = Yuv420Nv21Packer.pack(
+                width = width,
+                height = height,
+                yPlane = yPlane.toPackerPlane(),
+                uPlane = uPlane.toPackerPlane(),
+                vPlane = vPlane.toPackerPlane()
+            )
 
             // 4. Create YUV Mat (Height * 1.5 to account for Chroma planes)
             val yuvMat = Mat(height + height / 2, width, CvType.CV_8UC1)
@@ -150,61 +118,6 @@ object ImageConverter {
             fallbackConversionAttempts++
             imageProxyToBitmapFallback(imageProxy)?.let { bitmapToMat(it) }
         }
-    }
-
-    private fun copyPlaneWithStride(
-        buffer: ByteBuffer,
-        dst: ByteArray,
-        dstOffset: Int,
-        width: Int,
-        height: Int,
-        rowStride: Int,
-        pixelStride: Int
-    ) {
-        buffer.rewind()
-
-        if (pixelStride == 1) {
-            for (row in 0 until height) {
-                val rowOffset = row * rowStride
-                buffer.position(rowOffset)
-                buffer.get(dst, dstOffset + row * width, width)
-            }
-        } else {
-            for (row in 0 until height) {
-                for (col in 0 until width) {
-                    val bufferIndex = row * rowStride + col * pixelStride
-                    dst[dstOffset + row * width + col] = buffer.get(bufferIndex)
-                }
-            }
-        }
-
-        buffer.rewind()
-    }
-
-    private fun deinterleavePlanes(
-        uBuffer: ByteBuffer,
-        vBuffer: ByteBuffer,
-        dst: ByteArray,
-        ySize: Int,
-        uvSize: Int,
-        uvRowStride: Int
-    ) {
-        uBuffer.rewind()
-        vBuffer.rewind()
-
-        val uvWidth = uvRowStride / 2
-        val uvHeight = uvSize / uvWidth
-
-        for (row in 0 until uvHeight) {
-            for (col in 0 until uvWidth) {
-                val bufferIndex = row * uvRowStride + col * 2
-                dst[ySize + row * uvWidth + col] = uBuffer.get(bufferIndex)
-                dst[ySize + uvSize + row * uvWidth + col] = vBuffer.get(bufferIndex)
-            }
-        }
-
-        uBuffer.rewind()
-        vBuffer.rewind()
     }
 
     private fun rotateMat(mat: Mat, degrees: Int): Mat {
@@ -248,19 +161,13 @@ object ImageConverter {
      */
     fun imageProxyToBitmapFallback(imageProxy: ImageProxy): Bitmap? {
         return try {
-            val yBuffer = imageProxy.planes[0].buffer
-            val uBuffer = imageProxy.planes[1].buffer
-            val vBuffer = imageProxy.planes[2].buffer
-
-            val ySize = yBuffer.remaining()
-            val uSize = uBuffer.remaining()
-            val vSize = vBuffer.remaining()
-
-            val nv21 = ByteArray(ySize + uSize + vSize)
-
-            yBuffer.get(nv21, 0, ySize)
-            vBuffer.get(nv21, ySize, vSize)
-            uBuffer.get(nv21, ySize + vSize, uSize)
+            val nv21 = Yuv420Nv21Packer.pack(
+                width = imageProxy.width,
+                height = imageProxy.height,
+                yPlane = imageProxy.planes[0].toPackerPlane(),
+                uPlane = imageProxy.planes[1].toPackerPlane(),
+                vPlane = imageProxy.planes[2].toPackerPlane()
+            )
 
             val yuvImage = YuvImage(
                 nv21,
@@ -318,5 +225,13 @@ object ImageConverter {
         val mat = Mat()
         org.opencv.android.Utils.bitmapToMat(bitmap, mat)
         return mat
+    }
+
+    private fun ImageProxy.PlaneProxy.toPackerPlane(): Yuv420Nv21Packer.Plane {
+        return Yuv420Nv21Packer.Plane(
+            buffer = buffer,
+            rowStride = rowStride,
+            pixelStride = pixelStride
+        )
     }
 }
